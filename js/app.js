@@ -8,7 +8,7 @@ import {
   onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, runTransaction, arrayUnion,
   getAggregateFromServer, sum,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
-import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app-check.js";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app-check.js";
 import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-ai.js";
 import { firebaseConfig, recaptchaSiteKey } from "./config.js";
 import * as C from "./core.js";
@@ -23,7 +23,7 @@ if (!firebaseConfig.apiKey) {
 
 const app = initializeApp(firebaseConfig);
 if (recaptchaSiteKey) {
-  initializeAppCheck(app, { provider: new ReCaptchaV3Provider(recaptchaSiteKey), isTokenAutoRefreshEnabled: true });
+  initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(recaptchaSiteKey), isTokenAutoRefreshEnabled: true });
 }
 const auth = getAuth(app);
 const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
