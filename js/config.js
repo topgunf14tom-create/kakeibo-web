@@ -4,7 +4,7 @@ export const firebaseConfig = {
   projectId: "kakeibo-80efa",
   storageBucket: "kakeibo-80efa.firebasestorage.app",
   messagingSenderId: "412249164963",
-  appId: "6LdR49EtAAAAAPmEwGWH8om8oKMS7BKdjI6kanK3",
+  appId: "1:412249164963:web:11e154258e9b1dfb040316",
 };
 
-export const recaptchaSiteKey = "6Lcx3dEtAAAAALXDUK18NOotFNgJpxd7LBhV44yq";
+export const recaptchaSiteKey = "6LdR49EtAAAAAPmEwGWH8om8oKMS7BKdjI6kanK3";
