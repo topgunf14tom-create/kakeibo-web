@@ -30,13 +30,24 @@ export function cssColor(argb) {
   return "#" + (n & 0xffffff).toString(16).padStart(6, "0");
 }
 
+/** まだ設定していないカテゴリは、名前から貯蓄らしいもの（投資信託・積立保険・iDeCoなど）を初期値で貯蓄扱いにする */
+export const looksLikeSavings = (label = "") =>
+  /投資|投信|積立|積み立て|貯蓄|貯金|預金|ideco|イデコ|確定拠出|nisa|ニーサ/i.test(label);
+
+/** 収支と貯蓄率。savings = 支出のうち貯蓄に数えるカテゴリの合計 */
+export function balance(income, expense, savings = 0) {
+  const net = income - expense;
+  const saved = savings + net;
+  return { income, expense, savings, net, saved, rate: income > 0 ? Math.trunc((saved * 100) / income) : null };
+}
+
 /** 家計簿のカテゴリ一覧（保存済みの設定＋標準） */
 export class Categories {
   constructor(stored = []) {
     const ids = new Set(stored.map((c) => c.id));
     const defIncome = Object.fromEntries(DEFAULT_CATEGORIES.map((c) => [c.id, c.income]));
     const merged = [
-      ...stored.map((c) => ({ ...c, income: c.income ?? defIncome[c.id] ?? false })),
+      ...stored.map((c) => ({ ...c, income: c.income ?? defIncome[c.id] ?? false, savings: c.savings ?? looksLikeSavings(c.label) })),
       ...DEFAULT_CATEGORIES.filter((c) => !ids.has(c.id)),
     ];
     this.all = merged.sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.label.localeCompare(b.label));

@@ -84,3 +84,16 @@ test("貯金目標の毎月の必要額", () => {
   const g = { target: 300000, deadline: "2027-02", deposits: [{ amount: 60000 }] };
   assert.equal(C.monthlyNeeded(g, new Date(2026, 8, 27)), 40000);
 });
+
+test("貯蓄率は貯蓄カテゴリ＋残金で計算する", () => {
+  const b = C.balance(294624, 184169, 75000);
+  assert.equal(b.net, 110455);
+  assert.equal(b.saved, 185455);
+  assert.equal(b.rate, 62);
+  assert.equal(C.balance(0, 10).rate, null);
+  assert.equal(C.looksLikeSavings("個人型確定拠出年金"), true);
+  assert.equal(C.looksLikeSavings("国民年金"), false);
+  const cats = new C.Categories([{ id: "C_x", label: "投資信託", order: 1 }, { id: "C_y", label: "投資信託", order: 2, savings: false }]);
+  assert.equal(cats.get("C_x").savings, true);
+  assert.equal(cats.get("C_y").savings, false);
+});

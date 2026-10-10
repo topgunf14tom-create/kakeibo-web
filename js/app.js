@@ -220,6 +220,14 @@ function budgetLine(spent, budget, period, label = "予算") {
   </div>`;
 }
 
+// 貯蓄に数えるカテゴリ（投資信託・積立保険・iDeCo など。Androidのカテゴリ管理で設定）の支出合計
+const savingsOf = (list) => list.filter((t) => S.cats.get(t.category)?.savings).reduce((s, t) => s + t.amount, 0);
+function savingsLine(b) {
+  if (b.rate == null) return "";
+  return `<div class="${b.saved < 0 ? "bad" : "good"}"><b>貯蓄 ${C.yen(b.saved)}（貯蓄率 ${b.rate}%）</b></div>` +
+    (b.savings > 0 ? `<div class="tiny">内訳：投資・積立など ${C.yen(b.savings)} ＋ 残金 ${C.signedYen(b.net)}</div>` : "");
+}
+
 function txRow(t) {
   const c = S.cats.get(t.category);
   const sub = [c.label, t.payment, t.memo].filter(Boolean).join(" · ");
@@ -245,7 +253,7 @@ function viewRecord() {
     <div class="nav"><button data-act="month" data-v="-1">‹</button><h2>${m.getFullYear()}年${m.getMonth() + 1}月</h2><button data-act="month" data-v="1">›</button></div>
     <div class="card primary-bg">
       <div class="small">今月の支出</div><div class="big">${C.yen(total)}</div><div class="small">${S.monthTx.length}件</div>
-      ${inc > 0 ? `<div class="${inc - total < 0 ? "bad" : "good"}"><b>収入 ${C.yen(inc)} · 収支 ${C.signedYen(inc - total)}（貯蓄率 ${Math.floor(((inc - total) * 100) / inc)}%）</b></div>` : ""}
+      ${inc > 0 ? `<div class="${inc - total < 0 ? "bad" : "good"}"><b>収入 ${C.yen(inc)} · 収支 ${C.signedYen(inc - total)}</b></div>${savingsLine(C.balance(inc, total, savingsOf(S.monthTx)))}` : ""}
       ${budget?.total > 0 ? budgetLine(total, budget.total, period) : ""}
       ${byCat.length ? `<div class="stack-bar">${byCat.map((c) => `<i style="flex:${c.amount};background:${C.cssColor(S.cats.get(c.id).color)}"></i>`).join("")}</div>
         <div class="tiny">${byCat.slice(0, 4).map((c) => `${S.cats.get(c.id).emoji}${esc(S.cats.get(c.id).label)} ${C.yenShort(c.amount)}`).join("　")}</div>` : ""}
@@ -300,7 +308,7 @@ function viewStats() {
       <div class="small">合計出費</div><div class="big">${C.yen(agg.total)}</div>
       <div class="small">${agg.count}件 · 1日平均 ${C.yen(p.days ? agg.total / p.days : 0)}</div>
       ${st.member ? "" : cmp({ week: "前週比", month: "前月比", year: "前年比" }[p.type], st.prev) + (p.type === "month" ? cmp("前年同月比", st.lastYear) : "")}
-      ${inc > 0 ? `<div>収入 ${C.yen(inc)}</div><b class="${inc - agg.total < 0 ? "bad" : "good"}">収支 ${C.signedYen(inc - agg.total)}（貯蓄率 ${Math.floor(((inc - agg.total) * 100) / inc)}%）</b>` : ""}
+      ${inc > 0 ? `<div>収入 ${C.yen(inc)}</div><b class="${inc - agg.total < 0 ? "bad" : "good"}">収支 ${C.signedYen(inc - agg.total)}</b>${savingsLine(C.balance(inc, agg.total, savingsOf(tx)))}` : ""}
       ${budget?.total > 0 ? budgetLine(agg.total, budget.total, p) : ""}
     </div>
     ${p.type === "month" && S.settings.aiEnabled ? `<div class="card">
@@ -410,7 +418,7 @@ function viewMore() {
     <div class="card stack">
       <b>✨ AI解析</b>
       <div class="small">今日 ${u.dayCount} / ${S.settings.aiDailyLimit}回 · 今月 ${u.monthCount} / ${S.settings.aiMonthlyLimit}回（家族の合計）</div>
-      ${u.blockedDay === C.ymd(today()) ? `<div class="bad small">⚠ Googleの無料枠の上限に達したため、今日はAIを止めています</div>` : ""}
+      ${u.blockedDay === C.ymd(today()) ? `<div class="bad small">⚠ Googleの無料枠の上限に達したため、今日はAIを止めています</div><button class="outline small" data-act="unblockAi">停止を解除して、もう一度試す</button>` : ""}
       ${!recaptchaSiteKey ? `<div class="warn small">このWeb版はAIの設定（reCAPTCHA）がまだのため、レシートは手入力になります。</div>` : ""}
     </div>
 
@@ -594,6 +602,9 @@ document.addEventListener("click", async (e) => {
       break;
     case "delSettle": task(() => deleteDoc(doc(db, "households", S.hid, "settlements", el.dataset.id))); break;
     case "addGoal": S.modal = { type: "goal" }; render(); break;
+    case "unblockAi":
+      task(() => setDoc(doc(db, "households", S.hid, "meta", "aiUsage"), { blockedDay: "" }, { merge: true }), () => toast("AI解析の停止を解除しました"));
+      break;
     case "saveGoal": {
       const target = Math.round(Number(String(m.target ?? "").replace(/[,¥円]/g, "")));
       if (!m.name?.trim() || !(target > 0)) { toast("目標と金額を入れてください"); return; }
@@ -647,7 +658,29 @@ async function reserveAi() {
     return d;
   });
 }
-const isQuota = (e) => /quota|429|RESOURCE_EXHAUSTED|rate limit/i.test(String(e?.message ?? e) + String(e?.code ?? ""));
+// 429系のエラーを「1日の枠切れ（その日は止める）」と「一時的（1分あたりの上限・混雑）」に分ける
+const errText = (e) => String(e?.message ?? e) + " " + String(e?.code ?? "") + " " + JSON.stringify(e?.customData ?? {});
+const quotaKind = (e) => {
+  const t = errText(e);
+  if (!/quota|429|RESOURCE_EXHAUSTED|rate limit|overloaded|503|unavailable/i.test(t)) return "none";
+  return /per ?day|requests_per_day/i.test(t) ? "daily" : "transient";
+};
+const BUSY_MSG = "AIが混み合っているか、Googleの無料枠の一時的な上限に当たりました（回数には数えていません）。1分ほど待ってからもう一度お試しください";
+// 一時的なエラーなら15秒待って1回だけやり直す
+async function withRetry(fn) {
+  try { return await fn(); } catch (e) {
+    if (quotaKind(e) !== "transient") throw e;
+    await new Promise((r) => setTimeout(r, 15000));
+    return fn();
+  }
+}
+// 結果が得られなかった1回分を返す
+const refundAi = () => runTransaction(db, async (tx) => {
+  const ref = doc(db, "households", S.hid, "meta", "aiUsage");
+  const d = (await tx.get(ref)).data();
+  if (!d) return;
+  tx.set(ref, { ...d, dayCount: Math.max(0, (d.dayCount ?? 0) - 1), monthCount: Math.max(0, (d.monthCount ?? 0) - 1) });
+}).catch(() => {});
 const markBlocked = () => setDoc(doc(db, "households", S.hid, "meta", "aiUsage"), { blockedDay: C.ymd(today()) }, { merge: true }).catch(() => {});
 
 function emptyReview() {
@@ -665,21 +698,27 @@ async function scanReceipt(files) {
     localStorage.setItem("aiConsent", "1");
   }
   S.modal = { ...base, loading: "画像を準備しています…" }; render();
+  let reserved = false;
   try {
     const images = await Promise.all(files.slice(0, 3).map((f) => resize(f)));
     const r = await reserveAi();
     if (r.kind === "blocked") return manual("Googleの無料枠の上限に達しています。今日は手入力でお願いします。");
     if (r.kind === "limit") return manual(`AI解析の${r.daily ? "今日" : "今月"}の上限（${r.daily ? S.settings.aiDailyLimit : S.settings.aiMonthlyLimit}回）に達しました。品目を手で入力してください。`);
     S.modal.loading = "AIでレシートを読み取っています…"; render();
+    reserved = true;
     const model = getGenerativeModel(ai, { model: S.settings.aiModel, generationConfig: { responseMimeType: "application/json" } });
-    const res = await model.generateContent([C.aiPrompt(S.cats), ...images.map((data) => ({ inlineData: { data, mimeType: "image/jpeg" } }))]);
+    const res = await withRetry(() => model.generateContent([C.aiPrompt(S.cats), ...images.map((data) => ({ inlineData: { data, mimeType: "image/jpeg" } }))]));
+    reserved = false;
     const review = C.reviewFromAi(res.response.text(), S.cats, S.rules, S.renames, today());
     const low = r.dayLeft <= S.settings.aiDailyLimit / 5 || r.monthLeft <= S.settings.aiMonthlyLimit / 5;
     S.modal = { ...base, review, notice: low ? `AIで読み取りました。AI解析は残りわずかです（今日 ${r.dayLeft}回・今月 ${r.monthLeft}回）。` : `AIで読み取りました（今月あと${r.monthLeft}回）。内容を確認して保存してください。`, noticeWarn: low };
     render();
   } catch (e) {
     console.error(e);
-    if (isQuota(e)) { markBlocked(); return manual("Googleの無料枠の上限に達しました。今日はAIを止めています。品目を手で入力してください。"); }
+    if (reserved) refundAi();
+    const k = quotaKind(e);
+    if (k === "daily") { markBlocked(); return manual("Googleの無料枠（1日分）の上限に達しました。今日はAIを止めています。品目を手で入力してください。"); }
+    if (k === "transient") return manual(BUSY_MSG + "。今回は品目を手で入力するか、閉じてからもう一度撮ってください。");
     manual("AIの読み取りに失敗しました（" + friendly(e) + "）。品目を手で入力してください。");
   }
 }
@@ -705,9 +744,11 @@ async function makeMonthlyReview() {
   if (p.type !== "month" || S.reviewBusy) return;
   if (!recaptchaSiteKey) { toast("このWeb版はAIの設定がまだです"); return; }
   S.reviewBusy = true; render();
+  let reserved = false;
   try {
     const r = await reserveAi();
     if (r.kind !== "ok") { toast(r.kind === "blocked" ? "Googleの無料枠の上限に達しています" : "AI解析の上限に達しています"); return; }
+    reserved = true;
     const cur = C.aggregate(S.stats.tx, p);
     const prevP = p.shift(-1);
     const prevSnap = (await getDocs(rangeQuery("transactions", prevP.start, prevP.end))).docs.map((d) => txFromDoc(d, false));
@@ -724,11 +765,16 @@ ${lines(cur)}
 ${lines(before)}
 ${Object.entries(budget?.categories ?? {}).map(([k, v]) => `予算 ${S.cats.get(k).label}: ${v}円`).join("\n")}`;
     const model = getGenerativeModel(ai, { model: S.settings.aiModel });
-    const text = (await model.generateContent(prompt)).response.text().trim();
+    const text = (await withRetry(() => model.generateContent(prompt))).response.text().trim();
+    reserved = false;
     await setDoc(doc(db, "households", S.hid, "reviews", C.ym(p.start)), { text, by: myName(), createdAt: Date.now() });
   } catch (e) {
     console.error(e);
-    if (isQuota(e)) { markBlocked(); toast("Googleの無料枠の上限に達しました"); } else toast("作成に失敗しました：" + friendly(e));
+    if (reserved) refundAi();
+    const k = quotaKind(e);
+    if (k === "daily") { markBlocked(); toast("Googleの無料枠（1日分）の上限に達しました"); }
+    else if (k === "transient") toast(BUSY_MSG);
+    else toast("作成に失敗しました：" + friendly(e));
   } finally { S.reviewBusy = false; render(); }
 }
 
