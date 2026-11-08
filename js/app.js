@@ -708,7 +708,7 @@ document.addEventListener("click", async (e) => {
     case "settleMonth": S.settle.month = C.addMonths(S.settle.month, +v); subscribeSettle(); render(); break;
     case "close": S.modal = null; render(); break;
     case "add":
-      S.modal = { type: "entry", income: false, category: "FOOD", date: C.ymd(today()), payment: localStorage.getItem("lastPayment") ?? "", paidBy: S.user.uid, split: { mode: S.cats.get("FOOD").split } };
+      S.modal = { type: "entry", income: false, category: "FOOD", date: C.ymd(today()), payment: localStorage.getItem("lastPayment") ?? "", paidBy: S.user.uid, split: C.categorySplit(S.cats.get("FOOD")) };
       render(); break;
     case "edit": {
       const income = el.dataset.income === "1";
@@ -718,7 +718,7 @@ document.addEventListener("click", async (e) => {
       render(); break;
     }
     case "kind": m.income = v === "1"; m.category = m.income ? "SALARY" : "FOOD"; render(); break;
-    case "pickCat": m.category = v; if (!m.income && !m.splitTouched) m.split = { mode: S.cats.get(v).split }; render(); break;
+    case "pickCat": m.category = v; if (!m.income && !m.splitTouched) m.split = C.categorySplit(S.cats.get(v)); render(); break;
     case "saveEntry": saveEntry(); break;
     case "deleteEntry":
       if (confirm("この明細を削除しますか？家族全員の家計簿から削除されます。")) {
@@ -860,7 +860,7 @@ async function scanReceipt(files) {
     const low = r.dayLeft <= S.settings.aiDailyLimit / 5 || r.monthLeft <= S.settings.aiMonthlyLimit / 5;
     // 負担の初期値は、金額がいちばん大きいカテゴリの既定（外食なら半分ずつ など）
     const top = Object.entries(C.categoryTotals(review)).sort((x, y) => y[1] - x[1])[0]?.[0];
-    if (top) base.split = { mode: S.cats.get(top).split };
+    if (top) base.split = C.categorySplit(S.cats.get(top));
     S.modal = { ...base, review, notice: low ? `AIで読み取りました。AI解析は残りわずかです（今日 ${r.dayLeft}回・今月 ${r.monthLeft}回）。` : `AIで読み取りました（今月あと${r.monthLeft}回）。内容を確認して保存してください。`, noticeWarn: low };
     render();
   } catch (e) {

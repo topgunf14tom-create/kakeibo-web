@@ -161,3 +161,12 @@ test("カテゴリの既定の負担", () => {
   assert.equal(cats.get("FOOD").split, "default");
   assert.equal(cats.get("TRIP_ALLOWANCE").income, true);
 });
+
+test("支払いルール：家賃 5万・3万（金額が違えば同じ割合）", () => {
+  const rent = { mode: "amount", amounts: { masa: 50000, mizu: 30000 } };
+  assert.deepEqual(C.shares(80000, "mizu", rent, ["masa", "mizu"], { masa: 6, mizu: 4 }), { masa: 50000, mizu: 30000 });
+  assert.deepEqual(C.shares(82000, "masa", rent, ["masa", "mizu"], { masa: 6, mizu: 4 }), { masa: 51250, mizu: 30750 });
+  assert.deepEqual(C.shares(6000, "masa", { mode: "amount", amounts: { mizu: 2000 } }, ["masa", "mizu"], {}), { masa: 4000, mizu: 2000 });
+  const cats = new C.Categories([{ id: "C9", label: "家賃", split: "amount", splitAmounts: { masa: 50000, mizu: 30000 } }]);
+  assert.deepEqual(C.categorySplit(cats.get("C9")), { mode: "amount", weights: {}, amounts: { masa: 50000, mizu: 30000 } });
+});

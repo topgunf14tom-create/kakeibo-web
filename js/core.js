@@ -57,6 +57,8 @@ export const SPLIT_MODES = [
 export const splitLabel = (id) => SPLIT_MODES.find((m) => m.id === id)?.label ?? "共通";
 
 /** 既定の負担をまだ決めていないカテゴリの初期値：貯蓄は払った人だけ、外食は半分ずつ */
+/** カテゴリの支払いルール → 明細の負担の既定値 */
+export const categorySplit = (c) => ({ mode: c?.split ?? "default", weights: c?.splitWeights ?? {}, amounts: c?.splitAmounts ?? {} });
 export const defaultSplitFor = (c) => (c.income ? "default" : c.savings || c.id === "FURUSATO" ? "payer" : c.id === "DINING" ? "even" : "default");
 
 /** 明細の負担のしかた。splitMode がない古い明細は shared から */
@@ -108,6 +110,10 @@ export function shares(amount, payer, split, members, defaultWeights = {}) {
       return others.length ? distribute(amount, others, std) : { [payer]: amount };
     }
     case "amount": {
+      // 全員の額が決まっている（支払いルール：家賃 5万・3万など）ときは、その割合で分ける
+      if (people.every((p) => (split.amounts?.[p] ?? -1) >= 0) && people.reduce((s, p) => s + split.amounts[p], 0) > 0) {
+        return distribute(amount, people, Object.fromEntries(people.map((p) => [p, split.amounts[p]])));
+      }
       const sign = amount < 0 ? -1 : 1;
       let left = amount * sign;
       const fixed = {};
@@ -133,7 +139,7 @@ export class Categories {
     const merged = [
       ...stored.map((c) => {
         const x = { ...c, income: c.income ?? defIncome[c.id] ?? false, savings: c.savings ?? looksLikeSavings(c.label) };
-        return { ...x, split: SPLIT_MODES.some((m) => m.id === c.split) ? c.split : defaultSplitFor(x) };
+        return { ...x, split: SPLIT_MODES.some((m) => m.id === c.split) && c.split !== "other" ? c.split : defaultSplitFor(x) };
       }),
       ...DEFAULT_CATEGORIES.filter((c) => !ids.has(c.id)),
     ];
