@@ -12,6 +12,7 @@ export const DEFAULT_CATEGORIES = [
   ["HOUSING", "住居・光熱", "🏠", 0xFF546E7A, false],
   ["COMM", "通信", "📱", 0xFF3949AB, false],
   ["SOCIAL", "交際費", "🎁", 0xFFD81B60, false],
+  ["FURUSATO", "ふるさと納税", "🏯", 0xFF5D4037, false],
   ["OTHER", "その他", "📦", 0xFF9E9E9E, false],
   ["SALARY", "給与", "💴", 0xFF2E7D32, true],
   ["BONUS", "賞与", "🎉", 0xFF00838F, true],
@@ -56,7 +57,7 @@ export const SPLIT_MODES = [
 export const splitLabel = (id) => SPLIT_MODES.find((m) => m.id === id)?.label ?? "共通";
 
 /** 既定の負担をまだ決めていないカテゴリの初期値：貯蓄は払った人だけ、外食は半分ずつ */
-export const defaultSplitFor = (c) => (c.income ? "default" : c.savings ? "payer" : c.id === "DINING" ? "even" : "default");
+export const defaultSplitFor = (c) => (c.income ? "default" : c.savings || c.id === "FURUSATO" ? "payer" : c.id === "DINING" ? "even" : "default");
 
 /** 明細の負担のしかた。splitMode がない古い明細は shared から */
 export function splitOf(t) {
