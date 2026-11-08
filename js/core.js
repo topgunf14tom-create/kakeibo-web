@@ -16,8 +16,10 @@ export const DEFAULT_CATEGORIES = [
   ["SALARY", "給与", "💴", 0xFF2E7D32, true],
   ["BONUS", "賞与", "🎉", 0xFF00838F, true],
   ["SIDE_INCOME", "副収入", "💼", 0xFF6A1B9A, true],
+  ["TRIP_ALLOWANCE", "出張手当", "🧳", 0xFF0277BD, true],
+  ["POINT_CASHBACK", "ポイント・還元", "🪙", 0xFFEF6C00, true],
   ["INCOME_OTHER", "その他収入", "💰", 0xFF827717, true],
-].map(([id, label, emoji, color, income], order) => ({ id, label, emoji, color, order, hidden: false, builtin: true, income }));
+].map(([id, label, emoji, color, income], order) => ({ id, label, emoji, color, order, hidden: false, builtin: true, income, split: id === "DINING" ? "even" : "default" }));
 
 export const OTHER_ID = "OTHER";
 export const INCOME_OTHER_ID = "INCOME_OTHER";
@@ -41,13 +43,97 @@ export function balance(income, expense, savings = 0) {
   return { income, expense, savings, net, saved, rate: income > 0 ? Math.trunc((saved * 100) / income) : null };
 }
 
+// ---------------- 負担のしかた（割り勘）：Android の Split / Splitter と同じ ----------------
+
+export const SPLIT_MODES = [
+  { id: "default", label: "共通", hint: "標準の割合で分ける" },
+  { id: "even", label: "半分ずつ", hint: "人数で均等に分ける" },
+  { id: "ratio", label: "割合を指定", hint: "この明細だけ別の割合" },
+  { id: "amount", label: "金額を指定", hint: "相手の負担額を円で入れる" },
+  { id: "payer", label: "払った人だけ", hint: "個人の出費。精算に入らない" },
+  { id: "other", label: "相手の分（立替）", hint: "全額を相手が負担" },
+];
+export const splitLabel = (id) => SPLIT_MODES.find((m) => m.id === id)?.label ?? "共通";
+
+/** 既定の負担をまだ決めていないカテゴリの初期値：貯蓄は払った人だけ、外食は半分ずつ */
+export const defaultSplitFor = (c) => (c.income ? "default" : c.savings ? "payer" : c.id === "DINING" ? "even" : "default");
+
+/** 明細の負担のしかた。splitMode がない古い明細は shared から */
+export function splitOf(t) {
+  const mode = SPLIT_MODES.some((m) => m.id === t.splitMode) ? t.splitMode : (t.shared === false ? "payer" : "default");
+  return { mode, weights: t.splitWeights ?? {}, amounts: t.splitAmounts ?? {} };
+}
+/** 家族の共通の出費か（精算の対象） */
+export const isShared = (t) => !t.isIncome && !t.business && splitOf(t).mode !== "payer";
+/** 家計の支出として数えるか（会社経費は数えない） */
+export const counts = (t) => !t.business;
+
+/** 保存するフィールド（shared は古い版との互換のため残す） */
+export function splitFields(split) {
+  return {
+    splitMode: split.mode,
+    splitWeights: split.mode === "ratio" && Object.keys(split.weights ?? {}).length ? split.weights : null,
+    splitAmounts: split.mode === "amount" && Object.keys(split.amounts ?? {}).length ? split.amounts : null,
+    shared: split.mode !== "payer",
+  };
+}
+
+/** 割合で配分し、端数は小数部の大きい人から1円ずつ。割合が全員0なら均等 */
+export function distribute(amount, people, weights) {
+  if (!people.length) return {};
+  const w = people.reduce((s, p) => s + (weights[p] ?? 0), 0) > 0 ? weights : Object.fromEntries(people.map((p) => [p, 1]));
+  const sum = people.reduce((s, p) => s + (w[p] ?? 0), 0);
+  const sign = amount < 0 ? -1 : 1;
+  const abs = amount * sign;
+  const raw = Object.fromEntries(people.map((p) => [p, (abs * (w[p] ?? 0)) / sum]));
+  const out = Object.fromEntries(people.map((p) => [p, Math.floor(raw[p])]));
+  let rest = abs - Object.values(out).reduce((a, b) => a + b, 0);
+  const order = [...people].sort((a, b) => (raw[b] - Math.floor(raw[b])) - (raw[a] - Math.floor(raw[a])));
+  for (const p of order) { if (rest <= 0) break; out[p] += 1; rest -= 1; }
+  return Object.fromEntries(people.map((p) => [p, out[p] * sign]));
+}
+
+/** 1件の明細を、誰がいくら負担するかに分ける（合計は必ず amount） */
+export function shares(amount, payer, split, members, defaultWeights = {}) {
+  const people = [...new Set([...members, payer])].filter(Boolean);
+  if (!people.length || !amount) return {};
+  const std = Object.fromEntries(people.map((p) => [p, Math.max(0, defaultWeights[p] ?? 1)]));
+  switch (split.mode) {
+    case "payer": return { [payer]: amount };
+    case "even": return distribute(amount, people, Object.fromEntries(people.map((p) => [p, 1])));
+    case "ratio": return distribute(amount, people, Object.fromEntries(people.map((p) => [p, Math.max(0, split.weights?.[p] ?? 0)])));
+    case "other": {
+      const others = people.filter((p) => p !== payer);
+      return others.length ? distribute(amount, others, std) : { [payer]: amount };
+    }
+    case "amount": {
+      const sign = amount < 0 ? -1 : 1;
+      let left = amount * sign;
+      const fixed = {};
+      for (const p of people) {
+        if (split.amounts?.[p] == null) continue;
+        const v = Math.min(Math.max(0, split.amounts[p]), left);
+        fixed[p] = v; left -= v;
+      }
+      let restPeople = people.filter((p) => !(p in fixed));
+      if (!restPeople.length) restPeople = [payer];
+      const rest = distribute(left, restPeople, Object.fromEntries(restPeople.map((p) => [p, 1])));
+      return Object.fromEntries(people.map((p) => [p, ((fixed[p] ?? 0) + (rest[p] ?? 0)) * sign]));
+    }
+    default: return distribute(amount, people, std);
+  }
+}
+
 /** 家計簿のカテゴリ一覧（保存済みの設定＋標準） */
 export class Categories {
   constructor(stored = []) {
     const ids = new Set(stored.map((c) => c.id));
     const defIncome = Object.fromEntries(DEFAULT_CATEGORIES.map((c) => [c.id, c.income]));
     const merged = [
-      ...stored.map((c) => ({ ...c, income: c.income ?? defIncome[c.id] ?? false, savings: c.savings ?? looksLikeSavings(c.label) })),
+      ...stored.map((c) => {
+        const x = { ...c, income: c.income ?? defIncome[c.id] ?? false, savings: c.savings ?? looksLikeSavings(c.label) };
+        return { ...x, split: SPLIT_MODES.some((m) => m.id === c.split) ? c.split : defaultSplitFor(x) };
+      }),
       ...DEFAULT_CATEGORIES.filter((c) => !ids.has(c.id)),
     ];
     this.all = merged.sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.label.localeCompare(b.label));
@@ -218,26 +304,26 @@ export function isOverPace(spent, budget, period, today) {
 
 export const payerOf = (t) => t.paidBy || t.createdBy;
 
-export function settlement(expenses, members, weights = {}, records = []) {
-  const shared = expenses.filter((t) => t.shared !== false);
-  const people = [...new Set([...members, ...shared.map(payerOf)])].filter(Boolean);
+export function settlement(expenses, members, weights = {}, records = [], carry = {}) {
+  const shared = expenses.filter(isShared);
+  const people = [...new Set([...members, ...shared.map(payerOf), ...Object.keys(carry), ...records.flatMap((r) => [r.from, r.to])])].filter(Boolean);
   if (!people.length) return { total: 0, members: [], transfers: [] };
-  const total = shared.reduce((s, t) => s + t.amount, 0);
-  const w = Object.fromEntries(people.map((p) => [p, Math.max(0, weights[p] ?? 1)]));
-  const wSum = Object.values(w).reduce((a, b) => a + b, 0) || null;
-  const raw = Object.fromEntries(people.map((p) => [p, wSum == null ? total / people.length : (total * w[p]) / wSum]));
-  const share = Object.fromEntries(people.map((p) => [p, Math.floor(raw[p])]));
-  let rest = total - Object.values(share).reduce((a, b) => a + b, 0);
-  for (const p of [...people].sort((a, b) => (raw[b] - Math.floor(raw[b])) - (raw[a] - Math.floor(raw[a])))) {
-    if (rest <= 0) break;
-    share[p] += 1; rest -= 1;
+  const paid = {}, share = {};
+  for (const t of shared) {
+    const p = payerOf(t);
+    paid[p] = (paid[p] ?? 0) + t.amount;
+    for (const [u, v] of Object.entries(shares(t.amount, p, splitOf(t), members, weights))) share[u] = (share[u] ?? 0) + v;
   }
   const balances = people.map((p) => {
-    const paid = shared.filter((t) => payerOf(t) === p).reduce((s, t) => s + t.amount, 0);
     const sent = records.filter((r) => r.from === p).reduce((s, r) => s + r.amount, 0);
     const received = records.filter((r) => r.to === p).reduce((s, r) => s + r.amount, 0);
-    return { uid: p, paid, share: share[p], sent, received, balance: paid - share[p] + sent - received };
+    const c = carry[p] ?? 0;
+    return { uid: p, paid: paid[p] ?? 0, share: share[p] ?? 0, sent, received, carry: c, balance: c + (paid[p] ?? 0) - (share[p] ?? 0) + sent - received };
   });
+  return { total: shared.reduce((s, t) => s + t.amount, 0), members: balances, transfers: transfersOf(balances) };
+}
+
+function transfersOf(balances) {
   const debtors = balances.filter((b) => b.balance < 0).map((b) => [b.uid, -b.balance]).sort((a, b) => b[1] - a[1]);
   const creditors = balances.filter((b) => b.balance > 0).map((b) => [b.uid, b.balance]).sort((a, b) => b[1] - a[1]);
   const transfers = [];
@@ -248,10 +334,27 @@ export function settlement(expenses, members, weights = {}, records = []) {
     if (dv === x) debtors.shift(); else debtors[0] = [d, dv - x];
     if (cv === x) creditors.shift(); else creditors[0] = [c, cv - x];
   }
-  return { total, members: balances, transfers };
+  return transfers;
 }
 
-// ---------------- 貯金目標 ----------------
+/** 前の月までの未精算（繰越） */
+export function carryOver(prior, members, weights, priorRecords) {
+  const out = {};
+  for (const m of settlement(prior, members, weights, priorRecords).members) if (m.balance) out[m.uid] = m.balance;
+  return out;
+}
+
+/** LINE などで送る精算の文面（Android と同じ） */
+export function summaryText(monthLabel, r, nameOf, ratioLabel) {
+  const ms = r.members.filter((m) => m.paid || m.share || m.carry || m.sent || m.received);
+  const lines = [`【${monthLabel}の家計の精算】`, `共通の出費 ${yen(r.total)}`,
+    "　払った額：" + ms.map((m) => `${nameOf(m.uid)} ${yen(m.paid)}`).join("／"),
+    "　負担額：" + ms.map((m) => `${nameOf(m.uid)} ${yen(m.share)}`).join("／") + (ratioLabel ? `（${ratioLabel}）` : "")];
+  if (ms.some((m) => m.carry)) lines.push("　前月までの未精算：" + ms.filter((m) => m.carry).map((m) => `${nameOf(m.uid)} ${m.carry > 0 ? "受け取り" : "支払い"} ${yen(Math.abs(m.carry))}`).join("／"));
+  for (const m of r.members.filter((m) => m.sent > 0)) lines.push(`　精算済み：${nameOf(m.uid)}が ${yen(m.sent)} を渡した`);
+  lines.push(r.transfers.length ? r.transfers.map((t) => `→ ${nameOf(t.from)}から${nameOf(t.to)}へ ${yen(t.amount)}`).join("\n") : "→ 精算は必要ありません");
+  return lines.join("\n");
+}
 
 export function goalSaved(g) { return (g.deposits ?? []).reduce((s, d) => s + (d.amount ?? 0), 0); }
 
@@ -331,12 +434,12 @@ export function adjustment(r) {
 export const isConsistent = (r) => r.items.length > 0 && r.total > 0 && (difference(r) === 0 || adjustment(r) !== 0);
 
 /** カテゴリ別の金額（外税などの差額は金額比で按分。合計はレシート合計と一致） */
-export function categoryTotals(r) {
+export function categoryTotals(r, keyOf = (i) => i.category, fallback = OTHER_ID) {
   const base = {};
-  for (const i of r.items) base[i.category] = (base[i.category] ?? 0) + i.price;
+  for (const i of r.items) base[keyOf(i)] = (base[keyOf(i)] ?? 0) + i.price;
   for (const k of Object.keys(base)) if (base[k] === 0) delete base[k];
   const keys = Object.keys(base);
-  if (!keys.length) return r.total > 0 ? { [OTHER_ID]: r.total } : {};
+  if (!keys.length) return r.total > 0 ? { [fallback]: r.total } : {};
   const adj = adjustment(r);
   if (!adj) return base;
   const sum = keys.reduce((s, k) => s + base[k], 0);
@@ -349,17 +452,24 @@ export function categoryTotals(r) {
 }
 
 /** 確認画面の内容を、Android と同じ形式の保存データにする */
-export function buildSave(r, { uid, name, receiptId, now, payment, paidBy, shared }) {
+export function buildSave(r, { uid, name, receiptId, now, payment, paidBy, split }) {
   const dateMs = millisOf(r.date);
   const store = [r.store, r.branch].filter(Boolean).join(" ");
+  // 「相手の分」の品目は別の明細にして、全額を相手の負担にする
+  const parts = categoryTotals(r, (i) => i.category + (i.forOther ? "|other" : "|"), OTHER_ID + "|");
   const totals = categoryTotals(r);
-  const txns = Object.entries(totals).map(([cat, amount]) => {
-    const names = r.items.filter((i) => i.category === cat).map((i) => i.name);
+  const base = split ?? { mode: "default" };
+  const txns = Object.entries(parts).map(([k, amount]) => {
+    const [cat, tag] = k.split("|");
+    const other = tag === "other";
+    const names = r.items.filter((i) => i.category === cat && !!i.forOther === other).map((i) => i.name);
     return {
       amount, category: cat, date: dateMs, store,
-      memo: names.slice(0, 5).join("、") + (names.length > 5 ? ` ほか${names.length - 5}点` : ""),
+      memo: (other ? "相手の分：" : "") + names.slice(0, 5).join("、") + (names.length > 5 ? ` ほか${names.length - 5}点` : ""),
       createdBy: uid, createdByName: name, receiptId, createdAt: now,
-      payment: payment ?? "", paidBy: paidBy ?? "", shared: shared !== false, recurringId: null,
+      payment: payment ?? "", paidBy: paidBy ?? "", recurringId: null,
+      ...splitFields(other ? { mode: "other" } : base),
+      business: false, updatedAt: 0, source: "",
     };
   });
   const receipt = {
@@ -402,10 +512,12 @@ export function reserveDecision(u, s, today) {
   return { kind: "ok", next, dayLeft: s.aiDailyLimit - next.dayCount, monthLeft: s.aiMonthlyLimit - next.monthCount };
 }
 
+export const DEFAULT_SETTLE_START = "2026-11";
 export const settingsFrom = (m) => ({
   aiEnabled: m?.aiEnabled ?? true, aiAuto: m?.aiAuto ?? true,
   aiDailyLimit: m?.aiDailyLimit ?? 20, aiMonthlyLimit: m?.aiMonthlyLimit ?? 100,
   aiModel: m?.aiModel || DEFAULT_AI_MODEL, weekStartsMonday: m?.weekStartsMonday ?? true, split: m?.split ?? {},
+  tripDaily: m?.tripDaily ?? 3500, tripHolidayTravel: m?.tripHolidayTravel ?? 1500, settleStart: m?.settleStart || DEFAULT_SETTLE_START,
 });
 
 // ---------------- 表示 ----------------

@@ -53,7 +53,7 @@ test("AIの結果 → 確認画面 → 保存データ", () => {
   assert.equal(C.ymd(r.date), "2026-09-20");
   assert.equal(C.isConsistent(r), true);
   r.items[2].category = "DINING";
-  const s = C.buildSave(r, { uid: "u1", name: "瑞希", receiptId: "rid", now: 1, payment: "クレジットカード", paidBy: "u1", shared: true });
+  const s = C.buildSave(r, { uid: "u1", name: "瑞希", receiptId: "rid", now: 1, payment: "クレジットカード", paidBy: "u1", split: { mode: "default" } });
   assert.deepEqual(s.txns.map((x) => [x.category, x.amount]), [["DINING", 25930]]);
   assert.equal(s.txns[0].store, "豚捨 KITTE丸の内店");
   assert.equal(s.receipt.items.length, 3);
@@ -96,4 +96,68 @@ test("貯蓄率は貯蓄カテゴリ＋残金で計算する", () => {
   const cats = new C.Categories([{ id: "C_x", label: "投資信託", order: 1 }, { id: "C_y", label: "投資信託", order: 2, savings: false }]);
   assert.equal(cats.get("C_x").savings, true);
   assert.equal(cats.get("C_y").savings, false);
+});
+
+// ---------------- 割り勘・精算（Android の LinksTest と同じ数字） ----------------
+const M = "masa", Z = "mizu", STD = { masa: 6, mizu: 4 };
+const ex = (amount, payer, extra = {}) => ({ id: payer + amount, amount, createdBy: payer, category: "FOOD", date: C.millisOf(new Date(2026, 10, 3)), ...extra });
+
+test("負担のしかた", () => {
+  assert.deepEqual(C.shares(6000, M, { mode: "default" }, [M, Z], STD), { masa: 3600, mizu: 2400 });
+  assert.deepEqual(C.shares(6000, M, { mode: "even" }, [M, Z], STD), { masa: 3000, mizu: 3000 });
+  assert.deepEqual(C.shares(6000, M, { mode: "payer" }, [M, Z], STD), { masa: 6000 });
+  assert.deepEqual(C.shares(6000, M, { mode: "other" }, [M, Z], STD), { mizu: 6000 });
+  assert.deepEqual(C.shares(6000, M, { mode: "ratio", weights: { masa: 1, mizu: 2 } }, [M, Z], STD), { masa: 2000, mizu: 4000 });
+  assert.deepEqual(C.shares(6000, M, { mode: "amount", amounts: { mizu: 2000 } }, [M, Z], STD), { masa: 4000, mizu: 2000 });
+  const odd = C.shares(1001, Z, { mode: "even" }, [M, Z], STD);
+  assert.equal(odd.masa + odd.mizu, 1001);
+  assert.equal(C.splitOf({ shared: false }).mode, "payer");
+  assert.equal(C.splitOf({}).mode, "default");
+});
+
+test("精算：明細ごとの負担・会社経費・繰越", () => {
+  const e = [
+    ex(10000, M),
+    ex(6000, M, { splitMode: "even", id: "dinner" }),
+    ex(3000, M, { splitMode: "other", id: "her" }),
+    ex(5000, M, { splitMode: "payer", id: "fund" }),
+    ex(30000, M, { business: true, id: "hotel" }),
+    ex(2000, Z, { splitMode: "amount", splitAmounts: { masa: 500 }, id: "z1" }),
+  ];
+  const r = C.settlement(e, [M, Z], STD);
+  assert.equal(r.total, 21000);
+  assert.equal(r.members.find((m) => m.uid === Z).share, 11500);
+  assert.deepEqual(r.transfers, [{ from: Z, to: M, amount: 9500 }]);
+  const carry = C.carryOver([ex(10000, M)], [M, Z], STD, []);
+  assert.deepEqual(carry, { masa: 4000, mizu: -4000 });
+  const nov = C.settlement([ex(5000, Z, { splitMode: "even" })], [M, Z], STD, [], carry);
+  assert.deepEqual(nov.transfers, [{ from: Z, to: M, amount: 1500 }]);
+});
+
+test("精算の文面", () => {
+  const r = C.settlement([ex(186420, M)], [M, Z], STD);
+  const text = C.summaryText("11月", r, (u) => (u === M ? "まさゆき" : "瑞希"), "6:4");
+  assert.ok(text.includes("負担額：まさゆき ¥111,852／瑞希 ¥74,568（6:4）"));
+  assert.ok(text.endsWith("→ 瑞希からまさゆきへ ¥74,568"));
+});
+
+test("レシート：相手の分の品目は別の明細", () => {
+  const r = { store: "イオン", branch: "", date: new Date(2026, 10, 2), total: 1500, items: [
+    { name: "牛乳", price: 300, category: "FOOD", suggested: "FOOD", ocrName: "牛乳" },
+    { name: "化粧水", price: 1200, category: "CLOTHING", suggested: "CLOTHING", ocrName: "化粧水", forOther: true },
+  ] };
+  const s = C.buildSave(r, { uid: "u1", name: "まさゆき", receiptId: "rid", now: 1, payment: "", paidBy: "u1", split: { mode: "default" } });
+  assert.equal(s.txns.length, 2);
+  const her = s.txns.find((t) => t.category === "CLOTHING");
+  assert.equal(her.splitMode, "other");
+  assert.ok(her.memo.startsWith("相手の分："));
+  assert.equal(s.txns.find((t) => t.category === "FOOD").splitMode, "default");
+});
+
+test("カテゴリの既定の負担", () => {
+  const cats = new C.Categories([{ id: "C1", label: "投資信託", order: 1 }]);
+  assert.equal(cats.get("C1").split, "payer");
+  assert.equal(cats.get("DINING").split, "even");
+  assert.equal(cats.get("FOOD").split, "default");
+  assert.equal(cats.get("TRIP_ALLOWANCE").income, true);
 });

@@ -98,6 +98,7 @@ button { cursor: pointer; border: none; background: none; }
 .item select { grid-column: 1 / 2; }
 .item .price { text-align: right; }
 .item .text { position: absolute; right: 4px; bottom: 6px; }
+.item .check { grid-column: 1 / -1; font-size: .8rem; color: var(--muted); padding-right: 36px; }
 
 .tabs { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); z-index: 10; }
 .tabs button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; font-size: .75rem; color: var(--muted); }
