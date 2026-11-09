@@ -267,6 +267,14 @@ function savingsLine(b) {
     (b.savings > 0 ? `<div class="tiny">内訳：投資・積立など ${C.yen(b.savings)} ＋ 残金 ${C.signedYen(b.net)}</div>` : "");
 }
 
+/** 払った人の色（家計簿に入った順：藍・薄紅…） */
+function payerColor(t) {
+  const ms = S.household?.members ?? [];
+  if (t.isIncome || ms.length < 2) return "";
+  const i = ms.indexOf(t.paidBy || t.createdBy);
+  return i < 0 ? "" : `var(${["--masa", "--mizu", "--m3", "--m4"][i % 4]})`;
+}
+
 function txRow(t) {
   const c = S.cats.get(t.category);
   const sp = C.splitOf(t).mode;
@@ -275,7 +283,7 @@ function txRow(t) {
   return `<button class="tx" data-act="edit" data-id="${t.id}" data-income="${t.isIncome ? 1 : 0}">
     <span class="dot" style="background:${C.cssColor(c.color)}33">${c.emoji}</span>
     <span class="grow"><b class="ellipsis">${esc(t.store || c.label)}</b><span class="small muted ellipsis">${esc(sub)}</span>
-    ${t.createdByName ? `<span class="tiny muted">記録: ${esc(t.createdByName)}</span>` : ""}</span>
+    ${t.createdByName || payerColor(t) ? `<span class="tiny muted">${payerColor(t) ? `<i class="payer" style="background:${payerColor(t)}"></i>` : ""}${t.createdByName ? `記録: ${esc(t.createdByName)}` : ""}</span>` : ""}</span>
     <b class="${t.isIncome ? "good" : t.business ? "muted" : ""}">${t.isIncome ? "+" : ""}${C.yen(t.amount)}</b></button>`;
 }
 
@@ -302,8 +310,8 @@ function viewRecord() {
   const goal = [...S.goals].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))[0];
   return `
     <div class="nav"><button data-act="month" data-v="-1">‹</button><h2>${m.getFullYear()}年${m.getMonth() + 1}月</h2><button data-act="month" data-v="1">›</button></div>
-    <div class="card primary-bg">
-      <div class="small">今月の支出</div><div class="big">${C.yen(total)}</div><div class="small">${spend.length}件</div>
+    <div class="card cover">
+      <div class="cover-label">${m.getMonth() + 1}月の支出・${spend.length}件</div><div class="big">${C.yen(total)}</div>
       ${inc > 0 ? `<div class="${inc - total < 0 ? "bad" : "good"}"><b>収入 ${C.yen(inc)} · 収支 ${C.signedYen(inc - total)}</b></div>${savingsLine(C.balance(inc, total, savingsOf(spend)))}` : ""}
       ${budget?.total > 0 ? budgetLine(total, budget.total, period) : ""}
       ${byCat.length ? `<div class="stack-bar">${byCat.map((c) => `<i style="flex:${c.amount};background:${C.cssColor(S.cats.get(c.id).color)}"></i>`).join("")}</div>
