@@ -70,6 +70,8 @@ export function splitOf(t) {
 export const isShared = (t) => !t.isIncome && !t.business && splitOf(t).mode !== "payer";
 /** 家計の支出として数えるか（会社経費は数えない） */
 export const counts = (t) => !t.business;
+/** 毎月の支出・予算として数えるか（会社経費・特別費を除く） */
+export const everyday = (t) => !t.business && !t.special;
 
 /** 保存するフィールド（shared は古い版との互換のため残す） */
 export function splitFields(split) {

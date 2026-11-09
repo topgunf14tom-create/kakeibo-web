@@ -271,7 +271,7 @@ function txRow(t) {
   const c = S.cats.get(t.category);
   const sp = C.splitOf(t).mode;
   const tag = t.isIncome ? "" : t.business ? (t.reimbursed ? "会社経費（精算済み）" : "会社経費") : sp !== "default" ? C.splitLabel(sp) : "";
-  const sub = [c.label, tag, t.payment, t.memo].filter(Boolean).join(" · ");
+  const sub = [c.label, t.special ? "特別費" : "", tag, t.payment, t.memo].filter(Boolean).join(" · ");
   return `<button class="tx" data-act="edit" data-id="${t.id}" data-income="${t.isIncome ? 1 : 0}">
     <span class="dot" style="background:${C.cssColor(c.color)}33">${c.emoji}</span>
     <span class="grow"><b class="ellipsis">${esc(t.store || c.label)}</b><span class="small muted ellipsis">${esc(sub)}</span>
@@ -282,7 +282,7 @@ function txRow(t) {
 function viewRecord() {
   const m = S.month;
   // 会社経費は一覧には出すが、支出の合計・予算・貯蓄率には入れない
-  const spend = S.monthTx.filter(C.counts);
+  const spend = S.monthTx.filter(C.everyday);
   const total = spend.reduce((s, t) => s + t.amount, 0);
   const inc = S.monthIn.reduce((s, t) => s + t.amount, 0);
   const budget = C.resolveBudget(C.ym(m), S.budgets);
@@ -340,7 +340,7 @@ function goalCard(g, withButtons) {
 function statsTx() {
   const st = S.stats;
   const members = S.household?.members ?? [];
-  const base = st.tx.filter(C.counts);
+  const base = st.tx.filter(C.everyday);
   if (!st.member) return base;
   if (!st.shareMode) return base.filter((t) => t.createdBy === st.member);
   return base.map((t) => {
@@ -452,7 +452,7 @@ function viewMore() {
   const sharedCount = S.settle.tx.filter(C.isShared).length;
   const b = C.resolveBudget(C.ym(S.month), S.budgets);
   const spentBy = {};
-  for (const t of S.monthTx.filter(C.counts)) spentBy[t.category] = (spentBy[t.category] ?? 0) + t.amount;
+  for (const t of S.monthTx.filter(C.everyday)) spentBy[t.category] = (spentBy[t.category] ?? 0) + t.amount;
   const u = S.usage ?? C.normalizeUsage(null, today());
   return `
     <div class="card stack">
@@ -899,10 +899,10 @@ async function makeMonthlyReview() {
     const r = await reserveAi();
     if (r.kind !== "ok") { toast(r.kind === "blocked" ? "Googleの無料枠の上限に達しています" : "AI解析の上限に達しています"); return; }
     reserved = true;
-    const cur = C.aggregate(S.stats.tx.filter(C.counts), p);
+    const cur = C.aggregate(S.stats.tx.filter(C.everyday), p);
     const prevP = p.shift(-1);
     const prevSnap = (await getDocs(rangeQuery("transactions", prevP.start, prevP.end))).docs.map((d) => txFromDoc(d, false));
-    const before = C.aggregate(prevSnap.filter(C.counts), prevP);
+    const before = C.aggregate(prevSnap.filter(C.everyday), prevP);
     const budget = C.budgetFor(p, S.budgets);
     const income = S.stats.inc.reduce((s, t) => s + t.amount, 0);
     const lines = (a) => a.byCategory.map((c) => `- ${S.cats.get(c.id).label}: ${c.amount}円（${c.count}件）`).join("\n");
