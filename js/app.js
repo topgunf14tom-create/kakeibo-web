@@ -197,6 +197,57 @@ function settleTarget() {
 
 let chart = null;
 
+// ======================= 着せ替え =======================
+// Androidアプリと同じ4つのデザイン。選んだデザインはこのブラウザだけに覚える（瑞希と別々に選べる）
+const THEMES = [
+  { id: "chomen", label: "帳面", note: "霞色の紙面に藍鼠の表紙。落ち着いた標準のデザイン", bg: "#eef0f2", paper: "#ffffff", cover: "#2d3d4d", coverText: "#f1f4f6", primary: "#3e5c76", members: ["#3e5c76", "#b0657b"] },
+  { id: "hidamari", label: "ひだまり", note: "生成りの紙面に杏色の表紙。あたたかく明るいデザイン", bg: "#fbf6ef", paper: "#ffffff", cover: "#ffdcc2", coverText: "#4a2a18", primary: "#c75b34", members: ["#2f7fb5", "#d9566f"] },
+  { id: "sorairo", label: "そらいろ", note: "白い紙面に水色の表紙。さわやかで明るいデザイン", bg: "#f2f7fb", paper: "#ffffff", cover: "#cfe8f7", coverText: "#0f3550", primary: "#2479b5", members: ["#2b6fb0", "#db6680"] },
+  { id: "yoru", label: "夜", note: "暗い紙面に紺の表紙。夜や暗い場所で見やすいデザイン", bg: "#14181c", paper: "#1c2227", cover: "#243140", coverText: "#f1f4f6", primary: "#a9c2da", members: ["#a9c2da", "#e3a6b7"] },
+];
+const darkQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+const store = {
+  get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* 保存できなくても今の表示は変える */ } },
+};
+const themePref = { id: store.get("kakeibo.theme", "chomen"), follow: store.get("kakeibo.themeFollowDark", "1") !== "0" };
+const effectiveTheme = () => THEMES.find((t) => t.id === (themePref.follow && darkQuery?.matches ? "yoru" : themePref.id)) ?? THEMES[0];
+function applyTheme() {
+  const t = effectiveTheme();
+  document.documentElement.dataset.theme = t.id;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", t.bg);
+}
+applyTheme();
+darkQuery?.addEventListener?.("change", () => { applyTheme(); render(); });
+
+function themeSample(t) {
+  return `<span class="sample" style="background:${t.bg}">
+    <span class="s-cover" style="background:${t.cover};color:${t.coverText}">¥128,400</span>
+    <span class="s-row" style="background:${t.paper}">${t.members.map((c) => `<i style="background:${c}"></i>`).join("")}<em style="background:${t.primary}"></em></span>
+  </span>`;
+}
+
+function themeCard() {
+  const nowDark = themePref.follow && darkQuery?.matches;
+  return `<div class="card stack">
+    <b>🎨 デザイン（着せ替え）</b>
+    <div class="tiny muted">このブラウザだけの設定です。家族はそれぞれ好きなデザインにできます。</div>
+    <div class="themes">${THEMES.map((t) => `<button class="theme-opt ${themePref.id === t.id ? "on" : ""}" data-act="theme" data-v="${t.id}">
+      ${themeSample(t)}<span class="grow"><b>${t.label}</b><span class="small muted">${t.note}</span></span><span class="radio"></span></button>`).join("")}</div>
+    <button class="row" data-act="themeFollow" style="width:100%;text-align:left;padding:6px 2px">
+      <span class="grow"><b class="small">端末がダークモードのときは「夜」にする</b>
+      <span class="tiny muted">${nowDark ? "いまは端末がダークモードなので「夜」で表示しています" : "オフにすると、いつも選んだデザインで表示します"}</span></span>
+      <span class="switch ${themePref.follow ? "on" : ""}"></span></button>
+  </div>`;
+}
+
+// タブのアイコン（Androidアプリと同じ Material のアイコン）
+const TAB_ICONS = {
+  record: "M19.5 3.5 18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2v14H3v3c0 1.66 1.34 3 3 3h12c1.66 0 3-1.34 3-3V2l-1.5 1.5zM19 19c0 .55-.45 1-1 1s-1-.45-1-1v-3H8V5h11v14zM9 7h6v2H9zm7 0h2v2h-2zm-7 3h6v2H9zm7 0h2v2h-2z",
+  stats: "M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z",
+  more: "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z",
+};
+
 function render() {
   if (chart && !document.getElementById("chart")) { chart.destroy(); chart = null; }
   if (S.user === null) { $app.innerHTML = viewAuth(); return; }
@@ -208,8 +259,8 @@ function render() {
     <header class="top"><h1>${esc(S.household?.name ?? "家計簿")}</h1></header>
     <main class="page">${S.tab === "record" ? viewRecord() : S.tab === "stats" ? viewStats() : viewMore()}</main>
     <nav class="tabs">
-      ${[["record", "🧾", "記録"], ["stats", "📊", "集計"], ["more", "⚙️", "その他"]].map(([k, i, l]) =>
-        `<button data-act="tab" data-v="${k}" class="${S.tab === k ? "on" : ""}"><span>${i}</span>${l}</button>`).join("")}
+      ${[["record", "記録"], ["stats", "集計"], ["more", "設定"]].map(([k, l]) =>
+        `<button data-act="tab" data-v="${k}" class="${S.tab === k ? "on" : ""}"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${TAB_ICONS[k]}"/></svg></span>${l}</button>`).join("")}
     </nav>
     ${S.modal ? viewModal() : ""}`;
   window.scrollTo(0, scroll);
@@ -424,7 +475,8 @@ function drawChart() {
   const buckets = p.buckets();
   const ids = [...new Set(agg.buckets.flatMap((b) => Object.keys(b)))].filter((id) => !st.cat || id === st.cat)
     .sort((a, b) => S.cats.get(a).order - S.cats.get(b).order);
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const css = getComputedStyle(document.documentElement);
+  const tick = css.getPropertyValue("--muted").trim() || "#5c6873", gridc = css.getPropertyValue("--line").trim() || "#eee";
   if (chart) chart.destroy();
   chart = new window.Chart(el, {
     type: "bar",
@@ -436,8 +488,8 @@ function drawChart() {
       responsive: true, maintainAspectRatio: false, animation: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label} ${C.yen(c.raw)}` } } },
       scales: {
-        x: { stacked: true, ticks: { color: dark ? "#aaa" : "#555", autoSkip: true, maxRotation: 0 }, grid: { display: false } },
-        y: { stacked: true, ticks: { color: dark ? "#aaa" : "#555", callback: (v) => C.yenShort(v) }, grid: { color: dark ? "#333" : "#eee" } },
+        x: { stacked: true, ticks: { color: tick, autoSkip: true, maxRotation: 0 }, grid: { display: false } },
+        y: { stacked: true, ticks: { color: tick, callback: (v) => C.yenShort(v) }, grid: { color: gridc } },
       },
       onClick: (_, els) => {
         const i = els[0]?.index;
@@ -505,6 +557,8 @@ function viewMore() {
       ${u.blockedDay === C.ymd(today()) ? `<div class="bad small">⚠ Googleの無料枠の上限に達したため、今日はAIを止めています</div><button class="outline small" data-act="unblockAi">停止を解除して、もう一度試す</button>` : ""}
       ${!recaptchaSiteKey ? `<div class="warn small">このWeb版はAIの設定（reCAPTCHA）がまだのため、レシートは手入力になります。</div>` : ""}
     </div>
+
+    ${themeCard()}
 
     <button class="outline" data-act="logout">ログアウト（${esc(myName())}）</button>
     <p class="tiny muted center">レシート家計簿 Web版</p>`;
@@ -680,6 +734,8 @@ document.addEventListener("click", async (e) => {
   switch (a) {
     case "authTab": S.authTab = v; S.error = ""; render(); break;
     case "tab": S.tab = v; render(); window.scrollTo(0, 0); break;
+    case "theme": themePref.id = v; store.set("kakeibo.theme", v); applyTheme(); render(); break;
+    case "themeFollow": themePref.follow = !themePref.follow; store.set("kakeibo.themeFollowDark", themePref.follow ? "1" : "0"); applyTheme(); render(); break;
     case "logout": signOut(auth); break;
     case "month": S.month = C.addMonths(S.month, +v); subscribeMonth(); render(); break;
     case "statsType": S.stats.type = v; subscribeStats(); render(); break;

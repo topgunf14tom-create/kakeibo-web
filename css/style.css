@@ -9,14 +9,31 @@
   --num: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
   --sans: "Zen Kaku Gothic New", system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14181c; --surface: #1c2227; --text: #e5e9ec; --muted: #a6b1bb; --line: #2f383f;
-    --primary: #a9c2da; --primary-bg: #2b4054; --on-primary: #14283a;
-    --good: #9cc7b4; --warn: #e0c08a; --bad: #f0938a; --warn-bg: #3a3020; --info-bg: #1f2a34;
-    --cover: #243140; --cover-line: #3a4b5c;
-    --masa: #a9c2da; --mizu: #e3a6b7; --m3: #9cc7b4; --m4: #e0c08a;
-  }
+/* 着せ替え（Androidアプリの ui/Theme.kt と同じ色）。data-theme は js/app.js が付ける */
+:root[data-theme="hidamari"] {
+  --bg: #fbf6ef; --surface: #fffcf8; --text: #3a2a20; --muted: #7a6656; --line: #ede2d6;
+  --primary: #c75b34; --primary-bg: #fce3d6; --on-primary: #ffffff;
+  --good: #2f7a55; --warn: #a8701f; --bad: #b8322a; --warn-bg: #f8ead6; --info-bg: #f3e7dc;
+  --cover: #ffdcc2; --cover-text: #4a2a18; --cover-muted: #85593f; --cover-line: #f0be9c;
+  --cover-good: #2f7a55; --cover-bad: #b8322a;
+  --masa: #2f7fb5; --mizu: #d9566f; --m3: #3e9a6e; --m4: #d08a1e;
+}
+:root[data-theme="sorairo"] {
+  --bg: #f2f7fb; --surface: #fafcfe; --text: #1f2d3a; --muted: #5d7080; --line: #dce7ef;
+  --primary: #2479b5; --primary-bg: #d7ecfa; --on-primary: #ffffff;
+  --good: #23805d; --warn: #a8701f; --bad: #c0392b; --warn-bg: #f7eedd; --info-bg: #e2edf5;
+  --cover: #cfe8f7; --cover-text: #0f3550; --cover-muted: #46697f; --cover-line: #a9d0ea;
+  --cover-good: #1f7a55; --cover-bad: #b8322a;
+  --masa: #2b6fb0; --mizu: #db6680; --m3: #2e9c7a; --m4: #c98e22;
+}
+:root[data-theme="yoru"] {
+  --bg: #14181c; --surface: #1c2227; --text: #e5e9ec; --muted: #a6b1bb; --line: #2f383f;
+  --primary: #a9c2da; --primary-bg: #2b4054; --on-primary: #14283a;
+  --good: #9cc7b4; --warn: #e0c08a; --bad: #f0938a; --warn-bg: #3a3020; --info-bg: #1f2a34;
+  --cover: #243140; --cover-text: #f1f4f6; --cover-muted: #bcc7d1; --cover-line: #3a4b5c;
+  --cover-good: #b9d6c8; --cover-bad: #f4ada5;
+  --masa: #a9c2da; --mizu: #e3a6b7; --m3: #9cc7b4; --m4: #e0c08a;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 16px; letter-spacing: .02em; line-height: 1.55; -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
@@ -116,9 +133,7 @@ button { cursor: pointer; border: none; background: none; }
 
 .tabs { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); z-index: 10; }
 .tabs button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; font-size: .75rem; color: var(--muted); }
-.tabs button span { font-size: 1.3rem; }
 .tabs button.on { color: var(--primary); font-weight: 700; }
-.tabs button.on span { background: var(--primary-bg); border-radius: 999px; padding: 0 16px; }
 
 .modal { position: fixed; inset: 0; background: #0008; z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
 .sheet { background: var(--bg); width: 100%; max-width: 640px; max-height: 92vh; overflow-y: auto; border-radius: 20px 20px 0 0; padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); }
@@ -139,3 +154,23 @@ button { cursor: pointer; border: none; background: none; }
 .cover-label { font-size: .85rem; letter-spacing: .08em; color: var(--cover-muted); }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* デザインの着せ替え */
+.themes { display: grid; gap: 10px; }
+.theme-opt { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; }
+.theme-opt.on { border: 2px solid var(--primary); padding: 11px; }
+.theme-opt .grow b { font-size: 1rem; }
+.sample { width: 92px; height: 68px; flex-shrink: 0; border-radius: 12px; padding: 7px; display: flex; flex-direction: column; gap: 5px; border: 1px solid #0001; }
+.sample .s-cover { height: 30px; border-radius: 8px; padding: 4px 6px; font: 600 10px/1.2 var(--num); }
+.sample .s-row { height: 14px; border-radius: 5px; display: flex; align-items: center; gap: 4px; padding: 0 5px; }
+.sample .s-row i { width: 6px; height: 6px; border-radius: 50%; }
+.sample .s-row em { margin-left: auto; width: 18px; height: 4px; border-radius: 2px; }
+.radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--muted); flex-shrink: 0; display: grid; place-items: center; }
+.theme-opt.on .radio { border-color: var(--primary); }
+.theme-opt.on .radio::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--primary); }
+.switch { width: 46px; height: 28px; border-radius: 999px; background: var(--line); position: relative; flex-shrink: 0; transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted); transition: .15s; }
+.switch.on { background: var(--primary); } .switch.on::after { left: 22px; background: var(--on-primary); }
+.tabs button svg { width: 24px; height: 24px; fill: currentColor; }
+.tabs button .ic { display: grid; place-items: center; width: 56px; height: 30px; border-radius: 999px; }
+.tabs button.on .ic { background: var(--primary-bg); }

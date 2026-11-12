@@ -3,8 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#eef0f2" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#14181c" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#eef0f2">
+  <script>
+    // 着せ替え：表示の前に色を決めて、ちらつきを防ぐ（詳しくは js/app.js の applyTheme）
+    (function () {
+      var id = "chomen", follow = true;
+      try { id = localStorage.getItem("kakeibo.theme") || id; follow = localStorage.getItem("kakeibo.themeFollowDark") !== "0"; } catch (e) {}
+      if (follow && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) id = "yoru";
+      document.documentElement.dataset.theme = id;
+    })();
+  </script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="家計簿">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
