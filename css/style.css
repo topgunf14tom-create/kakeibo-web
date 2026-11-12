@@ -42,7 +42,7 @@ button, input, select { font: inherit; color: inherit; }
 h1, h2, h3 { margin: 0; }
 h1 { font-size: 1.2rem; letter-spacing: .06em; }
 h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: .06em; }
-h3 { font-size: 1rem; margin: 16px 0 8px; }
+h3 { font-size: 1.02rem; font-weight: 700; margin: 22px 0 10px; padding-bottom: 6px; border-bottom: 1.5px solid var(--primary); box-shadow: 0 3px 0 -2px var(--line); }
 code { background: var(--line); padding: 1px 4px; border-radius: 4px; }
 
 .top { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: calc(12px + env(safe-area-inset-top)) 16px 8px; }
@@ -62,7 +62,7 @@ code { background: var(--line); padding: 1px 4px; border-radius: 4px; }
 .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
 .err { color: var(--bad); margin: 0; }
 
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
 .card.primary-bg { background: var(--primary-bg); border-color: transparent; }
 .card.warn { background: var(--warn-bg); color: var(--text); border-color: transparent; }
 .card.info { background: var(--info-bg); border-color: transparent; }
@@ -102,21 +102,9 @@ button { cursor: pointer; border: none; background: none; }
 .nav button { font-size: 1.6rem; width: 44px; height: 44px; border-radius: 50%; color: var(--primary); }
 .small-nav { margin: 0; } .small-nav button { font-size: 1.2rem; width: 36px; height: 36px; }
 
-.bar { display: block; height: 7px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 4px 0; }
-.bar i { display: block; height: 100%; border-radius: 4px; }
-.bar i.good { background: var(--primary); } .bar i.warn { background: #f9a825; } .bar i.bad { background: var(--bad); }
 .budget { margin-top: 6px; }
-.stack-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin-top: 8px; }
-.stack-bar i { display: block; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 
-.day { display: flex; justify-content: space-between; font-size: .82rem; font-weight: 500; color: var(--muted); margin: 20px 6px 8px; letter-spacing: .06em; }
-.day span:last-child { font-family: var(--num); font-weight: 600; }
-.tx { display: flex; align-items: center; gap: 12px; width: 100%; background: var(--surface); border: 1px solid transparent; border-radius: 14px; padding: 12px 14px; margin-bottom: 6px; text-align: left; transition: border-color .15s; }
-.tx:hover { border-color: var(--line); }
-.tx > b { font-family: var(--num); font-weight: 600; font-size: 1.08rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.payer { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
-.dot { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0; }
 .catrow { display: flex; flex-direction: column; width: 100%; padding: 8px 4px; border-radius: 10px; text-align: left; }
 .catrow.sel { background: var(--primary-bg); }
 .chart-wrap { position: relative; height: 220px; }
@@ -125,7 +113,7 @@ button { cursor: pointer; border: none; background: none; }
 .tbl td { text-align: right; padding: 4px 0; }
 .tbl td:first-child, .tbl th:first-child { text-align: left; }
 
-.item { display: grid; grid-template-columns: 1fr 88px; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px; position: relative; }
+.item { display: grid; grid-template-columns: 1fr 88px; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px; position: relative; }
 .item select { grid-column: 1 / 2; }
 .item .price { text-align: right; }
 .item .text { position: absolute; right: 4px; bottom: 6px; }
@@ -145,13 +133,6 @@ button { cursor: pointer; border: none; background: none; }
 #toast.show { opacity: 1; transform: translateX(-50%); }
 
 /* 表紙：ホームの今月の支出 */
-.card.cover { background: var(--cover); color: var(--cover-text); border: none; border-radius: 24px; padding: 22px 22px 20px; gap: 4px; }
-.card.cover .small, .card.cover .tiny, .card.cover .muted { color: var(--cover-muted); }
-.card.cover .big { font-size: 2.6rem; line-height: 1.15; margin: 2px 0 6px; }
-.card.cover .good { color: var(--cover-good); } .card.cover .bad { color: var(--cover-bad); }
-.card.cover .bar { background: var(--cover-line); } .card.cover .bar i.good { background: var(--cover-good); }
-.card.cover .stack-bar { margin-top: 12px; height: 8px; box-shadow: 0 0 0 1px var(--cover-line); }
-.cover-label { font-size: .85rem; letter-spacing: .08em; color: var(--cover-muted); }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
@@ -174,3 +155,76 @@ button { cursor: pointer; border: none; background: none; }
 .tabs button svg { width: 24px; height: 24px; fill: currentColor; }
 .tabs button .ic { display: grid; place-items: center; width: 56px; height: 30px; border-radius: 999px; }
 .tabs button.on .ic { background: var(--primary-bg); }
+
+/* ===== 帳面（Androidアプリ v4.8 と同じ組み方） ===== */
+.num { font-family: var(--num); }
+.sp { flex: 1; }
+.icon { width: 40px; height: 40px; border-radius: 50%; font-size: 1.6rem; color: var(--text); display: grid; place-items: center; }
+.icon:hover { background: var(--line); }
+
+/* 月の見出し：年は小さく、月を大きく */
+.month-head { display: flex; align-items: flex-end; gap: 6px; margin: 2px 0 10px; }
+.month-head > b { font-size: 44px; line-height: 44px; font-weight: 600; }
+.month-head > span:not(.sp) { display: flex; flex-direction: column; padding-bottom: 4px; line-height: 1.25; }
+.mh-tsuki { font-size: 1.3rem; font-weight: 700; }
+.month-head .icon { align-self: center; }
+
+/* 表紙：外枠の内側に細い罫の枠 */
+.cover { background: var(--cover); color: var(--cover-text); border-radius: 10px; padding: 5px; }
+.cover-in { border: 1px solid var(--cover-line); border-radius: 8px; padding: 16px 18px; }
+.cover .muted, .cover .tiny, .cover .small, .cover-label { color: var(--cover-muted); }
+.cover-label { font-size: .9rem; align-items: flex-end; }
+.cover .big { font-size: 2.6rem; line-height: 1.15; margin: 2px 0 2px; }
+.cover .good { color: var(--cover-good); } .cover .bad { color: var(--cover-bad); } .cover .warn { color: var(--cover-bad); }
+.crule { height: 1px; background: var(--cover-line); margin: 8px 0 0; }
+.cline { display: flex; justify-content: space-between; align-items: center; padding: 7px 0 5px; border-bottom: 1px dashed var(--cover-line); }
+.cline > span { color: var(--cover-muted); font-size: .92rem; }
+.cline > b { font-size: 1.12rem; font-weight: 600; }
+.cl-sub { padding: 2px 0 4px; }
+.cover .budget { margin-top: 12px; }
+.bline { position: relative; height: 10px; margin: 5px 0 2px; }
+.bline::before { content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 4px; background: var(--line); }
+.cover .bline::before { background: var(--cover-line); }
+.bline i { position: absolute; left: 0; top: 3px; height: 4px; }
+.bline i.good { background: var(--primary); } .bline i.warn { background: #e0a030; } .bline i.bad { background: var(--bad); }
+.cover .bline i.good { background: var(--cover-good); } .cover .bline i.bad { background: var(--cover-bad); }
+.bline em { position: absolute; top: 0; width: 1.5px; height: 10px; background: var(--text); transform: translateX(-1px); }
+.cover .bline em { background: var(--cover-text); }
+.stack-bar { display: flex; gap: 1px; height: 8px; margin-top: 14px; }
+.stack-bar i { display: block; }
+.cat2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 8px; font-size: .85rem; }
+.cat2 > span { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cat2 i { width: 8px; height: 8px; flex-shrink: 0; }
+.cat2 .ellipsis { flex: 1; color: var(--cover-muted); }
+.cat2 b { font-weight: 600; }
+
+/* お知らせ（付箋） */
+.slips { display: flex; flex-direction: column; gap: 1px; margin: 12px 0; }
+.slip { display: flex; align-items: center; width: 100%; text-align: left; background: var(--surface); min-height: 52px; }
+.slip > i { align-self: stretch; width: 4px; background: var(--primary); flex-shrink: 0; }
+.slip.urgent > i { background: var(--bad); }
+.slip .grow { padding: 8px 12px; }
+.slip .open { font-size: 12px; color: var(--primary); padding-right: 14px; }
+
+/* 明細：日付の見出しと罫線の行 */
+.day { display: flex; align-items: flex-end; gap: 6px; margin: 18px 0 0; padding-bottom: 4px; border-bottom: 1.5px solid var(--primary); }
+.day > b { font-size: 1.1rem; font-weight: 600; }
+.dow { font-size: .8rem; color: var(--muted); padding-bottom: 1px; }
+.dow.sun { color: var(--bad); } .dow.sat { color: var(--primary); }
+.ledger { display: flex; flex-direction: column; }
+.tx { display: flex; align-items: center; width: 100%; min-height: 58px; background: var(--surface); text-align: left; border-bottom: 1px dashed var(--line); }
+.tx:hover { background: color-mix(in srgb, var(--surface) 92%, var(--primary)); }
+.tx .band { align-self: stretch; width: 3px; flex-shrink: 0; }
+.tx .dot { width: 34px; height: 34px; border-radius: 4px; display: grid; place-items: center; flex-shrink: 0; margin-left: 11px; }
+.tx .grow { padding: 8px 12px; }
+.tx-name { font-size: 1rem; }
+.tx > b { font-family: var(--num); font-weight: 600; font-size: 1.1rem; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: 14px; }
+.tx > b.inc { color: var(--primary); }
+.dot { width: 40px; height: 40px; border-radius: 6px; display: grid; place-items: center; flex-shrink: 0; }
+.blank { padding: 40px 0; } .blank b { font-size: 1.05rem; }
+
+/* 予算の帯（表紙の外） */
+.bar { display: block; height: 4px; background: var(--line); overflow: hidden; margin: 6px 0; }
+.bar i { display: block; height: 100%; }
+.bar i.good { background: var(--primary); } .bar i.warn { background: #e0a030; } .bar i.bad { background: var(--bad); }
+.payer { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }

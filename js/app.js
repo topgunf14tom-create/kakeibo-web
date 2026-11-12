@@ -300,13 +300,16 @@ function viewSetup() {
 function budgetLine(spent, budget, period, label = "予算") {
   const r = budget > 0 ? spent / budget : 0;
   const cls = r > 1 ? "bad" : r >= 0.8 ? "warn" : "good";
-  const perDay = C.perDayLeft(spent, budget, period, today());
-  const pace = C.isOverPace(spent, budget, period, today());
+  const t = today();
+  const perDay = C.perDayLeft(spent, budget, period, t);
+  const pace = C.isOverPace(spent, budget, period, t);
+  // 目盛り：今日までに使ってよい目安（アプリと同じ）
+  const tick = t >= period.start && t < period.end ? (Math.round((t - period.start) / 86400000) + 1) / period.days : null;
   return `<div class="budget">
-    <div class="row"><span class="small">${label} ${C.yen(budget)} のうち ${Math.floor(r * 100)}%</span>
-    <b class="small ${cls}">${spent > budget ? "超過 " + C.yen(spent - budget) : "残り " + C.yen(budget - spent)}</b></div>
-    <div class="bar"><i class="${cls}" style="width:${Math.min(100, r * 100)}%"></i></div>
-    ${perDay != null || pace ? `<div class="tiny ${pace ? "bad" : "muted"}">${[perDay != null ? "残り1日あたり " + C.yen(perDay) : "", pace ? "ペース超過" : ""].filter(Boolean).join(" · ")}</div>` : ""}
+    <div class="row"><span class="small muted">${label} ${C.yen(budget)} のうち ${Math.floor(r * 100)}%</span>
+    <b class="num ${cls}">${spent > budget ? "超過 " + C.yen(spent - budget) : "残り " + C.yen(budget - spent)}</b></div>
+    <div class="bline"><i class="${cls}" style="width:${Math.min(100, r * 100)}%"></i>${tick != null ? `<em style="left:${Math.min(100, tick * 100)}%"></em>` : ""}</div>
+    ${perDay != null || pace ? `<div class="tiny ${pace ? "bad" : "muted"}">${[perDay != null ? "残り1日あたり " + C.yen(perDay) : "", pace ? "目盛りより先に進んでいます" : ""].filter(Boolean).join("。")}</div>` : ""}
   </div>`;
 }
 
@@ -329,14 +332,23 @@ function payerColor(t) {
 function txRow(t) {
   const c = S.cats.get(t.category);
   const sp = C.splitOf(t).mode;
-  const tag = t.isIncome ? "" : t.business ? (t.reimbursed ? "会社経費（精算済み）" : "会社経費") : sp !== "default" ? C.splitLabel(sp) : "";
-  const sub = [c.label, t.special ? "特別費" : "", tag, t.payment, t.memo].filter(Boolean).join(" · ");
+  const tag = t.isIncome ? "" : t.business ? (t.reimbursed ? "会社経費（精算済み）" : "会社経費") : t.onlyMe ? "" : sp !== "default" ? C.splitLabel(sp) : "";
+  const sub = [c.label, t.special ? "特別費" : "", tag, t.payment, t.memo, t.createdByName ? `記録 ${t.createdByName}` : ""].filter(Boolean).join("／");
+  const band = payerColor(t);
   return `<button class="tx" data-act="edit" data-id="${t.id}" data-income="${t.isIncome ? 1 : 0}">
-    <span class="dot" style="background:${C.cssColor(c.color)}33">${c.emoji}</span>
-    <span class="grow"><b class="ellipsis">${esc(t.store || c.label)}</b><span class="small muted ellipsis">${esc(sub)}</span>
-    ${t.createdByName || payerColor(t) ? `<span class="tiny muted">${payerColor(t) ? `<i class="payer" style="background:${payerColor(t)}"></i>` : ""}${t.createdByName ? `記録: ${esc(t.createdByName)}` : ""}</span>` : ""}</span>
-    <b class="${t.isIncome ? "good" : t.business ? "muted" : ""}">${t.isIncome ? "+" : ""}${C.yen(t.amount)}</b></button>`;
+    <i class="band" style="background:${band || "transparent"}"></i>
+    <span class="dot" style="background:${C.cssColor(c.color)}22">${c.emoji}</span>
+    <span class="grow"><span class="ellipsis tx-name">${esc(t.store || c.label)}</span><span class="small muted ellipsis">${esc(sub)}</span></span>
+    <b class="${t.isIncome ? "inc" : t.business ? "muted" : ""}">${t.isIncome ? "+" : ""}${C.yen(t.amount)}</b></button>`;
 }
+
+/** 表紙の1行（摘要と金額。下に点線） */
+const coverLine = (label, amount, cls = "", sub = "", act = "") =>
+  `<div class="cline"${act ? ` data-act="${act}" role="button"` : ""}><span>${label}</span><b class="num ${cls}">${amount}</b></div>${sub ? `<div class="tiny cl-sub">${sub}</div>` : ""}`;
+
+/** お知らせ（付箋）：左端の色の帯と2行の文 */
+const slip = (title, sub, act, v = "", urgent = false) =>
+  `<button class="slip ${urgent ? "urgent" : ""}" data-act="${act}" data-v="${v}"><i></i><span class="grow"><b>${title}</b><span class="small muted">${sub}</span></span><span class="open">開く</span></button>`;
 
 function viewRecord() {
   const m = S.month;
@@ -353,32 +365,39 @@ function viewRecord() {
     const sameMonth = C.ym(target) === C.ym(S.settle.month);
     const r = sameMonth ? C.settlement(S.settle.tx, S.household.members, S.settings.split, S.settle.records, S.settle.carry) : null;
     const msg = r ? (r.transfers.length ? r.transfers.map((t) => `${esc(nameOf(t.from))} → ${esc(nameOf(t.to))} ${C.yen(t.amount)}`).join("、") : "精算は必要ありません ✓") : "金額を確認しましょう";
-    settleNote = `<button class="card info" data-act="goSettle" data-v="${C.ym(target)}" style="text-align:left"><b>🔁 ${target.getMonth() + 1}月の精算</b><span class="small">${msg}</span></button>`;
+    settleNote = slip(`${target.getMonth() + 1}月の精算`, msg, "goSettle", C.ym(target), !!r?.transfers.length);
   }
   const all = sortTx([...S.monthTx, ...S.monthIn]);
   const groups = {};
   for (const t of all) (groups[t.date] ??= []).push(t);
   const goal = [...S.goals].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))[0];
+  const bal = inc > 0 ? C.balance(inc, total, savingsOf(spend)) : null;
+  const dow = "日月火水木金土";
   return `
-    <div class="nav"><button data-act="month" data-v="-1">‹</button><h2>${m.getFullYear()}年${m.getMonth() + 1}月</h2><button data-act="month" data-v="1">›</button></div>
-    <div class="card cover">
-      <div class="cover-label">${m.getMonth() + 1}月の支出・${spend.length}件</div><div class="big">${C.yen(total)}</div>
-      ${inc > 0 ? `<div class="${inc - total < 0 ? "bad" : "good"}"><b>収入 ${C.yen(inc)} · 収支 ${C.signedYen(inc - total)}</b></div>${savingsLine(C.balance(inc, total, savingsOf(spend)))}` : ""}
+    <div class="month-head"><b class="num">${m.getMonth() + 1}</b><span><span class="tiny muted">${m.getFullYear()}年</span><span class="mh-tsuki">月</span></span>
+      <span class="sp"></span><button class="icon" data-act="month" data-v="-1" aria-label="前の月">‹</button><button class="icon" data-act="month" data-v="1" aria-label="次の月">›</button></div>
+    <div class="cover"><div class="cover-in">
+      <div class="row cover-label"><span>今月の支出</span><span class="small">${spend.length}件</span></div>
+      <div class="big">${C.yen(total)}</div>
+      ${bal ? `<div class="crule"></div>${coverLine("収入", C.yen(inc))}${coverLine("収支", C.signedYen(bal.net), bal.net < 0 ? "bad" : "good")}
+        ${bal.rate != null ? coverLine("貯蓄", `${C.yen(bal.saved)}（${bal.rate}%）`, bal.saved < 0 ? "bad" : "good", bal.savings > 0 ? `投資・積立 ${C.yen(bal.savings)} と残金 ${C.signedYen(bal.net)}` : "") : ""}` : ""}
       ${budget?.total > 0 ? budgetLine(total, budget.total, period) : ""}
       ${byCat.length ? `<div class="stack-bar">${byCat.map((c) => `<i style="flex:${c.amount};background:${C.cssColor(S.cats.get(c.id).color)}"></i>`).join("")}</div>
-        <div class="tiny">${byCat.slice(0, 4).map((c) => `${S.cats.get(c.id).emoji}${esc(S.cats.get(c.id).label)} ${C.yenShort(c.amount)}`).join("　")}</div>` : ""}
-    </div>
+        <div class="cat2">${byCat.slice(0, 4).map((c) => `<span><i style="background:${C.cssColor(S.cats.get(c.id).color)}"></i><span class="ellipsis">${esc(S.cats.get(c.id).label)}</span><b class="num">${C.yenShort(c.amount)}</b></span>`).join("")}</div>` : ""}
+    </div></div>
     <div class="actions">
       <label class="primary big-btn">📷 レシートを撮る<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>
       <label class="outline">🖼 写真から<input type="file" accept="image/*" multiple data-act="scan" hidden></label>
       <button class="outline" data-act="add">＋ 手入力</button>
     </div>
-    ${settleNote}
+    ${settleNote ? `<div class="slips">${settleNote}</div>` : ""}
     ${goal ? goalCard(goal, false) : ""}
-    ${all.length ? "" : `<p class="muted center pad">まだ記録がありません。「レシートを撮る」から始めましょう。</p>`}
+    ${all.length ? "" : `<div class="blank"><b>この月はまだ白紙です</b><p class="muted">「レシートを撮る」でレシートを撮ると、店名・金額・品目を読み取って記帳します。</p></div>`}
     ${Object.entries(groups).map(([d, list]) => {
-      const dt = new Date(+d);
-      return `<div class="day"><span>${dt.getMonth() + 1}月${dt.getDate()}日(${"日月火水木金土"[dt.getDay()]})</span><span>${(() => { const v = list.filter((t) => !t.isIncome && C.counts(t)).reduce((s, t) => s + t.amount, 0); return v ? C.yen(v) : ""; })()}</span></div>${list.map(txRow).join("")}`;
+      const dt = new Date(+d), w = dt.getDay();
+      const v = list.filter((t) => !t.isIncome && C.counts(t)).reduce((s, t) => s + t.amount, 0);
+      return `<div class="day"><b class="num">${dt.getMonth() + 1}/${dt.getDate()}</b><span class="dow ${w === 0 ? "sun" : w === 6 ? "sat" : ""}">${dow[w]}</span><span class="sp"></span>${v ? `<span class="num muted">${C.yen(v)}</span>` : ""}</div>
+        <div class="ledger">${list.map(txRow).join("")}</div>`;
     }).join("")}`;
 }
 
