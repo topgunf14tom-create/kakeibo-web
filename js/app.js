@@ -40,6 +40,7 @@ const S = {
   stats: { type: "month", anchor: today(), member: null, shareMode: false, cat: null, tx: [], inc: [], prev: null, lastYear: null, review: null, bar: null },
   settle: { month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), tx: [], records: [], all: [], closes: {}, carry: {}, carryKey: "" },
   authTab: "login", modal: null, busy: false, error: "", reviewBusy: false,
+  page: null, recurring: [],
 };
 const subs = {};
 function sub(name, fn) { if (subs[name]) subs[name](); subs[name] = fn ? fn() : null; }
@@ -110,6 +111,12 @@ function subscribeHousehold() {
     });
   }));
   sub("goals", () => onSnapshot(col("goals"), (s) => { S.goals = s.docs.map((d) => ({ id: d.id, ...d.data() })); render(); }));
+  let posted = false;
+  sub("recurring", () => onSnapshot(col("recurring"), (s) => {
+    S.recurring = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (!posted) { posted = true; postRecurring(); }
+    render();
+  }));
   // 月末・月初は、精算する月を最初から表示しておく
   const target = settleTarget();
   if (target) S.settle.month = target;
@@ -257,7 +264,7 @@ function render() {
   const sheetScroll = document.querySelector(".sheet")?.scrollTop ?? 0;
   $app.innerHTML = `
     <header class="top"><h1>${esc(S.household?.name ?? "家計簿")}</h1></header>
-    <main class="page">${S.tab === "record" ? viewRecord() : S.tab === "stats" ? viewStats() : viewMore()}</main>
+    <main class="page">${S.page ? viewPage() : S.tab === "record" ? viewRecord() : S.tab === "stats" ? viewStats() : viewMore()}</main>
     <nav class="tabs">
       ${[["record", "記録"], ["stats", "集計"], ["more", "設定"]].map(([k, l]) =>
         `<button data-act="tab" data-v="${k}" class="${S.tab === k ? "on" : ""}"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${TAB_ICONS[k]}"/></svg></span>${l}</button>`).join("")}
@@ -587,7 +594,21 @@ function viewMore() {
         ${res.members.some((m) => m.carry) ? `<div class="small">前の月までの未精算：${res.members.filter((m) => m.carry).map((m) => `${esc(nameOf(m.uid))} ${m.carry > 0 ? "受け取り" : "支払い"} ${C.yen(Math.abs(m.carry))}`).join("／")}</div>` : ""}
         ${settleLinesHtml(members)}
         ${S.settle.records.map((r) => `<div class="row small muted"><span>記録：${esc(nameOf(r.from))} → ${esc(nameOf(r.to))} ${C.yen(r.amount)}</span><button class="text small" data-act="delSettle" data-id="${r.id}">取り消す</button></div>`).join("")}
-        <div class="tiny muted">負担額は明細ごとの「負担」（共通・半分ずつ・相手の分など）で計算します。会社経費と「払った人だけ」の明細は入りません。標準の割合（${members.map((u) => S.settings.split[u] ?? 1).join(":")}）の変更はAndroidアプリから行えます。</div>`}
+        <div class="tiny muted">負担額は明細ごとの「負担」（共通・半分ずつ・相手の分など）で計算します。会社経費と「払った人だけ」の明細は入りません。</div>
+        <div class="stack" style="gap:6px;margin-top:6px"><b class="small">標準の負担割合</b>
+          <div class="tiny muted">明細の負担が「共通」のときに使います。例：6と4にすると6:4で分けます（全員1なら均等）</div>
+          <div class="grid2">${members.map((u) => `<label>${esc(nameOf(u))}<input data-ratio="${u}" inputmode="numeric" value="${S.settings.split[u] ?? 1}"></label>`).join("")}</div>
+          <button class="outline small" data-act="saveRatio" ${S.busy ? "disabled" : ""}>割合を保存</button></div>`}
+    </div>
+
+    <div class="card stack">
+      <b>🗂 家計の設定</b>
+      <div class="menu">
+        ${[["budget", "💰", "予算", "月の全体・カテゴリ別の予算"], ["cats", "🏷️", "カテゴリ・支払いルール", "追加・並べ替え・非表示、カテゴリごとの負担（家賃 5万・3万など）"],
+          ["recurring", "🔁", "固定費・定期収入", "家賃・保険・給与など、毎月決まった日に自動で記録"], ["medical", "💊", "医療費控除の集計", "1年分の医療費と控除の目安、確定申告用のCSV"]]
+          .map(([k, i, t, d]) => `<button data-act="openPage" data-v="${k}"><span class="mi">${i}</span><span class="grow"><b>${t}</b><span class="tiny muted">${d}</span></span><span class="muted">›</span></button>`).join("")}
+      </div>
+      <div class="tiny muted">カード明細・通販の自動取り込みと出張手当はAndroidアプリで行います。</div>
     </div>
 
     <div class="row"><h3>🎯 貯金目標</h3><button class="text" data-act="addGoal">＋ 追加</button></div>
@@ -598,7 +619,7 @@ function viewMore() {
       ${b ? `${b.total ? budgetLine(Object.values(spentBy).reduce((a, c) => a + c, 0), b.total, C.Period.of("month", S.month), "全体") : ""}
         ${Object.entries(b.categories ?? {}).map(([id, v]) => budgetLine(spentBy[id] ?? 0, v, C.Period.of("month", S.month), S.cats.get(id).emoji + S.cats.get(id).label)).join("")}`
         : `<p class="muted small">予算はまだありません。</p>`}
-      <div class="tiny muted">予算・カテゴリ・固定費の設定、カード明細の取り込み、医療費の集計はAndroidアプリで行えます。</div>
+      <button class="outline small" data-act="openPage" data-v="budget">予算を設定する</button>
     </div>
 
     <div class="card stack">
@@ -697,6 +718,8 @@ function viewModal() {
       <button class="primary" data-act="saveReceipt" ${S.busy || !Object.keys(totals).length ? "disabled" : ""}>${C.yen(Object.values(totals).reduce((a, b) => a + b, 0))} を ${Object.keys(totals).length}カテゴリに分けて保存</button>
     </div></div>`;
   }
+  if (m.type === "cat") return viewCategoryModal(m);
+  if (m.type === "rec") return viewRecurringModal(m);
   if (m.type === "goal") {
     return `<div class="modal"><div class="sheet stack">
       <div class="row"><h2>貯金目標を追加</h2><button class="text" data-act="close">✕</button></div>
@@ -706,6 +729,294 @@ function viewModal() {
       <button class="primary" data-act="saveGoal">保存</button></div></div>`;
   }
   return "";
+}
+
+// ======================= 設定のページ（予算・カテゴリ・固定費・医療費） =======================
+
+const num = (v) => { const n = Math.round(Number(String(v ?? "").replace(/[,¥円\s]/g, ""))); return Number.isFinite(n) ? n : NaN; };
+const ymLabel = (k) => `${+k.slice(0, 4)}年${+k.slice(5, 7)}月`;
+const pageHead = (title) => `<div class="page-head"><button class="icon" data-act="pageBack" aria-label="戻る">←</button><h2>${title}</h2></div>`;
+
+function openPage(type) {
+  if (type === "budget") S.page = { type, month: C.ym(today()), ...budgetDraft(C.ym(today())) };
+  else if (type === "medical") { S.page = { type, year: today().getFullYear(), reimbursed: "", rows: null }; loadMedical(); }
+  else S.page = { type };
+  render(); window.scrollTo(0, 0);
+}
+
+function viewPage() {
+  const p = S.page;
+  if (p.type === "budget") return viewBudgetPage(p);
+  if (p.type === "cats") return viewCategoriesPage();
+  if (p.type === "recurring") return viewRecurringPage();
+  if (p.type === "medical") return viewMedicalPage(p);
+  return "";
+}
+
+// ---------- 予算 ----------
+
+/** その月から使う予算の下書き（その月の設定があればそれ、なければその月に効いている設定） */
+function budgetDraft(key) {
+  const b = S.budgets.find((x) => x.month === key) ?? C.resolveBudget(key, S.budgets);
+  return { total: b?.total != null ? String(b.total) : "", cats: Object.fromEntries(Object.entries(b?.categories ?? {}).map(([k, v]) => [k, String(v)])) };
+}
+
+function viewBudgetPage(p) {
+  const exists = S.budgets.some((b) => b.month === p.month);
+  return `${pageHead("予算")}
+    <div class="card stack">
+      <label>この設定を使い始める月<input type="month" data-pbind="month" value="${p.month}"></label>
+      <div class="tiny muted">${exists ? `${ymLabel(p.month)}からの設定を直します。` : `${ymLabel(p.month)}から、次の設定がある月まで使います。`}</div>
+      <label>全体の予算（円）<input data-pbind="total" inputmode="numeric" value="${esc(p.total)}" placeholder="決めない"></label>
+      <div class="small muted" style="margin-top:6px">カテゴリ別の予算（空欄は決めない）</div>
+      <div class="budget-form">${S.cats.visible.map((c) => `<label><span>${c.emoji} ${esc(c.label)}</span>
+        <input data-pbind="cats.${c.id}" inputmode="numeric" value="${esc(p.cats[c.id] ?? "")}" placeholder="—"></label>`).join("")}</div>
+      <div class="tiny muted" id="catSum">${budgetSumText(p)}</div>
+      <button class="primary" data-act="saveBudget" ${S.busy ? "disabled" : ""}>保存</button>
+    </div>
+    <h3>これまでの設定</h3>
+    ${S.budgets.length ? [...S.budgets].sort((a, b) => b.month.localeCompare(a.month)).map((b) => `<div class="row card-row">
+      <span class="grow"><b>${ymLabel(b.month)}から</b><span class="tiny muted">${[b.total ? `全体 ${C.yen(b.total)}` : "", `カテゴリ ${Object.keys(b.categories ?? {}).length}件`].filter(Boolean).join("・")}</span></span>
+      <button class="text small" data-act="delBudget" data-v="${b.month}">削除</button></div>`).join("") : `<p class="muted small">まだありません。</p>`}`;
+}
+
+function budgetSumText(p) {
+  const sum = Object.values(p.cats).map(num).filter((n) => n > 0).reduce((a, b) => a + b, 0);
+  return `カテゴリ別の合計 ${C.yen(sum)}${num(p.total) > 0 ? `（全体 ${C.yen(num(p.total))}）` : ""}`;
+}
+
+function saveBudget() {
+  const p = S.page;
+  if (!/^\d{4}-\d{2}$/.test(p.month)) { toast("月を選んでください"); return; }
+  const total = num(p.total) > 0 ? num(p.total) : null;
+  const categories = Object.fromEntries(Object.entries(p.cats).map(([k, v]) => [k, num(v)]).filter(([, n]) => n > 0));
+  if (total == null && !Object.keys(categories).length) { toast("全体かカテゴリのどれかに金額を入れてください"); return; }
+  task(() => setDoc(doc(col("budgets"), p.month), { total, categories }), () => toast(`${ymLabel(p.month)}からの予算を保存しました`));
+}
+
+// ---------- カテゴリ・支払いルール ----------
+
+const saveCategories = (list) => setDoc(doc(db, "households", S.hid, "meta", "categories"), { items: list.map((c, i) => C.categoryToStored(c, i)) });
+
+function moveCategory(id, d) {
+  const list = [...S.cats.all];
+  const i = list.findIndex((c) => c.id === id);
+  const c = list[i];
+  // 同じ種類（支出／収入）の中で、隣のカテゴリと入れ替える
+  let j = i + d;
+  while (j >= 0 && j < list.length && list[j].income !== c.income) j += d;
+  if (j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  task(() => saveCategories(list));
+}
+
+const ruleText = (c) => {
+  const members = S.household?.members ?? [];
+  if (c.split === "ratio") return "割合 " + members.map((u) => c.splitWeights?.[u] ?? 0).join(":");
+  if (c.split === "amount") return members.map((u) => `${nameOf(u)} ${C.yen(c.splitAmounts?.[u] ?? 0)}`).join("・");
+  return C.splitLabel(c.split);
+};
+
+function viewCategoriesPage() {
+  const group = (income) => {
+    const list = S.cats.all.filter((c) => !!c.income === income);
+    return `<div class="ledger cat-list">${list.map((c, i) => `<div class="cat-row ${c.hidden ? "off" : ""}">
+      <span class="dot" style="background:${C.cssColor(c.color)}22">${c.emoji}</span>
+      <button class="grow" data-act="catEdit" data-v="${c.id}" style="text-align:left"><b>${esc(c.label)}</b>
+        <span class="tiny muted">${c.hidden ? "非表示" : income ? "収入" : [ruleText(c), c.savings ? "貯蓄に数える" : ""].filter(Boolean).join("・")}</span></button>
+      <button class="icon sm" data-act="catMove" data-v="${c.id}" data-d="-1" ${i === 0 ? "disabled" : ""} aria-label="上へ">▲</button>
+      <button class="icon sm" data-act="catMove" data-v="${c.id}" data-d="1" ${i === list.length - 1 ? "disabled" : ""} aria-label="下へ">▼</button>
+      ${c.id === C.OTHER_ID || c.id === C.INCOME_OTHER_ID ? `<span class="hide-sp"></span>` : `<button class="text small" data-act="catHide" data-v="${c.id}">${c.hidden ? "表示" : "隠す"}</button>`}
+    </div>`).join("")}</div>`;
+  };
+  return `${pageHead("カテゴリ・支払いルール")}
+    <p class="tiny muted">名前をタップすると、名前・絵文字・色と、そのカテゴリの既定の負担（支払いルール）を変えられます。家族の全員に反映されます。</p>
+    <div class="row"><h3>支出</h3><button class="text" data-act="catAdd" data-v="0">＋ 追加</button></div>${group(false)}
+    <div class="row"><h3>収入</h3><button class="text" data-act="catAdd" data-v="1">＋ 追加</button></div>${group(true)}`;
+}
+
+function viewCategoryModal(m) {
+  const members = S.household?.members ?? [];
+  const sp = m.split ?? { mode: "default" };
+  const modes = C.SPLIT_MODES.filter((x) => x.id !== "other");
+  let detail = "";
+  if (sp.mode === "default") detail = `<div class="tiny muted">標準の割合（${members.map((u) => S.settings.split[u] ?? 1).join(":")}）で分けます</div>`;
+  else if (sp.mode === "ratio") detail = `<div class="grid2">${members.map((u) => `<label>${esc(nameOf(u))}<input data-split-w="${u}" inputmode="numeric" value="${sp.weights?.[u] ?? ""}"></label>`).join("")}</div>`;
+  else if (sp.mode === "amount") detail = `<div class="tiny muted">例：家賃 まさゆき 50,000・瑞希 30,000。金額が違う月は、この割合で分けます。</div>
+    <div class="grid2">${members.map((u) => `<label>${esc(nameOf(u))}（円）<input data-split-a="${u}" inputmode="numeric" value="${sp.amounts?.[u] ?? ""}"></label>`).join("")}</div>`;
+  else detail = `<div class="tiny muted">${esc(C.SPLIT_MODES.find((x) => x.id === sp.mode)?.hint ?? "")}</div>`;
+  return `<div class="modal"><div class="sheet stack">
+    <div class="row"><h2>${m.isNew ? (m.income ? "収入のカテゴリを追加" : "カテゴリを追加") : "カテゴリを編集"}</h2><button class="text" data-act="close">✕</button></div>
+    <div class="grid-cat"><label>絵文字<input data-bind="emoji" value="${esc(m.emoji)}" maxlength="4" class="emoji-in"></label>
+      <label>名前<input data-bind="label" value="${esc(m.label)}" placeholder="例：ジム"></label>
+      <label>色<input type="color" data-bind="colorHex" value="${m.colorHex}"></label></div>
+    ${m.income ? "" : `<label class="check"><input type="checkbox" data-bind="savings" ${m.savings ? "checked" : ""}> 貯蓄に数える（投資信託・積立・iDeCo など）</label>
+      ${members.length > 1 ? `<div class="stack" style="gap:6px"><div class="small muted">支払いルール（このカテゴリの明細の、既定の負担）</div>
+        <div class="chips wrap">${modes.map((x) => `<button type="button" data-act="splitMode" data-v="${x.id}" class="${sp.mode === x.id ? "on" : ""}">${x.label}</button>`).join("")}</div>
+        ${detail}<div class="tiny muted">これから記録する明細に使います。記録済みの明細は変わりません。</div></div>` : ""}`}
+    <button class="primary" data-act="saveCat" ${S.busy ? "disabled" : ""}>保存</button>
+    ${!m.isNew && !m.builtin ? `<button class="text bad" data-act="delCat">このカテゴリを削除</button>` : ""}
+  </div></div>`;
+}
+
+function saveCategory() {
+  const m = S.modal;
+  const label = String(m.label ?? "").trim();
+  if (!label) { toast("名前を入れてください"); return; }
+  const sp = m.split ?? { mode: "default" };
+  const c = {
+    ...(S.cats.byId[m.id] ?? {}), id: m.id, label, emoji: String(m.emoji ?? "").trim() || "🏷️", color: C.argbOf(m.colorHex),
+    income: !!m.income, savings: !m.income && !!m.savings, builtin: !!m.builtin, hidden: !!m.hidden,
+    split: m.income ? "default" : sp.mode, splitWeights: sp.weights ?? {}, splitAmounts: sp.amounts ?? {},
+  };
+  const list = m.isNew ? (() => { // 同じ種類の最後に入れる
+    const all = [...S.cats.all];
+    const last = all.map((x) => !!x.income).lastIndexOf(!!c.income);
+    all.splice(last + 1, 0, c);
+    return all;
+  })() : S.cats.all.map((x) => (x.id === c.id ? c : x));
+  task(() => saveCategories(list), () => { S.modal = null; toast("カテゴリを保存しました"); });
+}
+
+// ---------- 固定費・定期収入 ----------
+
+function viewRecurringPage() {
+  const list = [...S.recurring].sort((a, b) => (!!a.income - !!b.income) || (a.day ?? 1) - (b.day ?? 1));
+  const sum = (inc) => list.filter((r) => !!r.income === inc && r.active !== false).reduce((s, r) => s + (r.amount ?? 0), 0);
+  return `${pageHead("固定費・定期収入")}
+    <p class="tiny muted">毎月決まった日に、明細として自動で記録します（Androidアプリ・Web版のどちらかを開いたとき。二重には記録しません）。</p>
+    <div class="card"><div class="row"><span class="small">固定費 毎月</span><b class="num">${C.yen(sum(false))}</b></div>
+      <div class="row"><span class="small">定期収入 毎月</span><b class="num inc">${C.yen(sum(true))}</b></div></div>
+    <div class="row"><h3>一覧</h3><button class="text" data-act="recAdd">＋ 追加</button></div>
+    ${list.length ? `<div class="ledger">${list.map((r) => {
+      const c = S.cats.get(r.category);
+      return `<button class="tx ${r.active === false ? "off" : ""}" data-act="recEdit" data-v="${r.id}">
+        <i class="band" style="background:${payerColor({ paidBy: r.paidBy }) || "transparent"}"></i>
+        <span class="dot" style="background:${C.cssColor(c.color)}22">${c.emoji}</span>
+        <span class="grow"><span class="ellipsis tx-name">${esc(r.name || c.label)}</span>
+          <span class="small muted ellipsis">${[`毎月${r.day ?? 1}日`, c.label, r.income ? "" : C.splitLabel(C.splitOf(r).mode), r.active === false ? "止めています" : r.lastPosted ? `${ymLabel(r.lastPosted)}まで記録済み` : ""].filter(Boolean).join("／")}</span></span>
+        <b class="${r.income ? "inc" : ""}">${r.income ? "+" : ""}${C.yen(r.amount ?? 0)}</b></button>`;
+    }).join("")}</div>` : `<p class="muted small">まだありません。「＋ 追加」から家賃・保険・給与などを登録できます。</p>`}`;
+}
+
+function viewRecurringModal(m) {
+  const cats = m.income ? S.cats.incomeVisible : S.cats.visible;
+  return `<div class="modal"><div class="sheet stack">
+    <div class="row"><h2>${m.isNew ? "固定費・定期収入を追加" : "固定費・定期収入を編集"}</h2><button class="text" data-act="close">✕</button></div>
+    <div class="seg"><button data-act="recKind" data-v="0" class="${m.income ? "" : "on"}">固定費（支出）</button><button data-act="recKind" data-v="1" class="${m.income ? "on" : ""}">定期収入</button></div>
+    <label>名前<input data-bind="name" value="${esc(m.name ?? "")}" placeholder="${m.income ? "例：給与" : "例：家賃"}"></label>
+    <label>金額（円）<input data-bind="amount" inputmode="numeric" value="${esc(m.amount ?? "")}" class="bigin"></label>
+    ${catChips(cats, m.category, "pickCat")}
+    <div class="grid2"><label>毎月の記録日<select data-bind="day">${Array.from({ length: 31 }, (_, i) => i + 1).map((d) => `<option value="${d}" ${+m.day === d ? "selected" : ""}>${d}日${d >= 29 ? "（月末に合わせる）" : ""}</option>`).join("")}</select></label>
+      <label>記録を始める月<input type="month" data-bind="startMonth" value="${m.startMonth ?? C.ym(today())}"></label></div>
+    ${m.income ? "" : payFields(m, { amount: String(m.amount ?? "").replace(/[,¥円]/g, ""), modes: C.SPLIT_MODES })}
+    <label class="check"><input type="checkbox" data-bind="active" ${m.active !== false ? "checked" : ""}> 毎月記録する（オフにすると止めます）</label>
+    ${m.lastPosted ? `<div class="tiny muted">${ymLabel(m.lastPosted)}分まで記録済みです。</div>` : ""}
+    <button class="primary" data-act="saveRec" ${S.busy ? "disabled" : ""}>保存</button>
+    ${m.isNew ? "" : `<button class="text bad" data-act="delRec">削除</button>`}
+  </div></div>`;
+}
+
+function saveRecurring() {
+  const m = S.modal;
+  const amount = num(m.amount);
+  if (!String(m.name ?? "").trim()) { toast("名前を入れてください"); return; }
+  if (!(amount > 0)) { toast("金額を入れてください"); return; }
+  const data = {
+    ...C.splitFields(m.income ? { mode: "default" } : m.split ?? { mode: "default" }),
+    name: m.name.trim(), amount, category: m.category, income: !!m.income, day: +m.day || 1,
+    payment: m.payment ?? "", paidBy: m.paidBy || S.user.uid, active: m.active !== false,
+    startMonth: /^\d{4}-\d{2}$/.test(m.startMonth ?? "") ? m.startMonth : C.ym(today()), lastPosted: m.lastPosted ?? "",
+  };
+  task(() => (m.isNew ? addDoc(col("recurring"), data) : setDoc(doc(col("recurring"), m.id), data)), () => { S.modal = null; toast("保存しました"); postRecurring(); });
+}
+
+/** 固定費を今日までの分だけ記録する。Android と同じく固定費ごとにトランザクションで lastPosted を確かめるので二重にならない */
+async function postRecurring() {
+  let posted = 0;
+  for (const r of S.recurring) {
+    if (!C.monthsToPost(r, today()).length) continue;
+    try {
+      posted += await runTransaction(db, async (tx) => {
+        const ref = doc(col("recurring"), r.id);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return 0;
+        const cur = { id: r.id, ...snap.data() };
+        const months = C.monthsToPost(cur, today());
+        for (const mo of months) {
+          const t = {
+            amount: cur.amount, category: cur.category, date: C.millisOf(C.recurringDate(cur, mo)), store: cur.name,
+            memo: cur.income ? "定期収入" : "固定費（自動）", createdBy: S.user.uid, createdByName: myName(), createdAt: Date.now(),
+            payment: cur.payment ?? "", paidBy: cur.paidBy ?? "", recurringId: cur.id, isIncome: !!cur.income,
+            split: cur.income ? { mode: "default" } : C.splitOf(cur),
+          };
+          tx.set(doc(col(cur.income ? "incomes" : "transactions")), txToMap(t));
+        }
+        if (months.length) tx.update(ref, { lastPosted: months.at(-1) });
+        return months.length;
+      });
+    } catch (e) { console.error(e); }
+  }
+  if (posted) toast(`固定費・定期収入を${posted}件記録しました`);
+}
+
+// ---------- 医療費控除 ----------
+
+async function loadMedical() {
+  const p = S.page;
+  p.rows = null; render();
+  const y = p.year;
+  try {
+    const q = await getDocs(rangeQuery("transactions", new Date(y, 0, 1), new Date(y + 1, 0, 1)));
+    if (S.page !== p || p.year !== y) return;
+    p.rows = q.docs.map((d) => txFromDoc(d, false)).filter((t) => t.category === "HEALTH" && !t.onlyMe);
+  } catch (e) { console.error(e); p.rows = []; toast(friendly(e)); }
+  render();
+}
+
+function viewMedicalPage(p) {
+  const rows = p.rows ?? [];
+  const total = rows.reduce((s, t) => s + t.amount, 0);
+  const re = num(p.reimbursed) > 0 ? num(p.reimbursed) : 0;
+  const est = C.medicalEstimate(total, re);
+  const by = (f) => Object.entries(rows.reduce((o, t) => { const k = f(t); (o[k] ??= []).push(t); return o; }, {}))
+    .map(([k, l]) => [k, l.length, l.reduce((s, t) => s + t.amount, 0)]).sort((a, b) => b[2] - a[2]);
+  return `${pageHead("医療費控除の集計")}
+    <div class="month-head"><b class="num">${p.year}</b><span><span class="mh-tsuki">年</span></span><span class="sp"></span>
+      <button class="icon" data-act="medYear" data-v="-1" aria-label="前の年">‹</button><button class="icon" data-act="medYear" data-v="1" aria-label="次の年">›</button></div>
+    <div class="cover"><div class="cover-in">
+      <div class="row cover-label"><span>「${esc(S.cats.get("HEALTH").label)}」の支出（家族全員）</span><span class="small">${rows.length}件</span></div>
+      <div class="big">${p.rows == null ? "…" : C.yen(total)}</div>
+      <div class="crule"></div>
+      <label class="cover-in-label">保険金などで補填される額（円）<input data-pbind="reimbursed" data-rerender="1" inputmode="numeric" value="${esc(p.reimbursed)}" placeholder="0"></label>
+      ${coverLine(est > 0 ? "医療費控除の目安" : "基準の10万円まで", est > 0 ? C.yen(est) : `あと ${C.yen(Math.max(0, C.MEDICAL_THRESHOLD + re - total))}`, est > 0 ? "good" : "")}
+    </div></div>
+    <p class="tiny muted">総所得が200万円未満の人は、基準が10万円ではなく所得の5%になります。治療目的でない市販品・健康食品などは対象外です。最終的な判断は国税庁の案内や税務署で確認してください。</p>
+    ${rows.length ? `<button class="outline" data-act="medCsv">確定申告用のCSVをダウンロード</button>
+      <p class="tiny muted">国税庁の「医療費集計フォーム」の項目の順に並べています。氏名（払った人）や区分は必要に応じてExcelで直してください。</p>
+      <h3>払った人ごと</h3><div class="card">${by((t) => C.payerOf(t)).map(([u, n, a]) => `<div class="row"><span>${esc(nameOf(u))}</span><span class="num">${n}件 <b>${C.yen(a)}</b></span></div>`).join("")}</div>
+      <h3>支払先ごと</h3><div class="card">${by((t) => t.store || "（店名なし）").map(([st, n, a]) => `<div class="row small"><span class="grow ellipsis">${esc(st)}<span class="tiny muted">（${C.medicalKind(st)}）</span></span><span class="num">${n}件 ${C.yen(a)}</span></div>`).join("")}</div>`
+      : p.rows ? `<p class="muted small">${p.year}年の「${esc(S.cats.get("HEALTH").label)}」の明細はまだありません。</p>` : ""}`;
+}
+
+function downloadCsv(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ---------- 標準の負担割合 ----------
+
+function saveRatio() {
+  const split = {};
+  for (const el of document.querySelectorAll("[data-ratio]")) {
+    const n = num(el.value);
+    if (!(n >= 0)) { toast("割合は0以上の数字で入れてください"); return; }
+    split[el.dataset.ratio] = n;
+  }
+  if (!Object.values(split).some((n) => n > 0)) { toast("どれか1人は1以上にしてください"); return; }
+  task(() => setDoc(doc(db, "households", S.hid, "meta", "settings"), { split }, { merge: true }), () => toast("標準の負担割合を保存しました"));
 }
 
 // ======================= 操作 =======================
@@ -735,8 +1046,21 @@ document.addEventListener("submit", (e) => {
   }
 });
 
+/** ページの入力欄（data-pbind="a.b"）を S.page に書く */
+function setPath(obj, path, value) {
+  const keys = path.split(".");
+  let o = obj;
+  for (const k of keys.slice(0, -1)) o = o[k] ??= {};
+  o[keys.at(-1)] = value;
+}
+
 document.addEventListener("input", (e) => {
   const el = e.target;
+  if (el.dataset.pbind && S.page) {
+    setPath(S.page, el.dataset.pbind, el.type === "checkbox" ? el.checked : el.value);
+    if (S.page.type === "budget") { const t = document.getElementById("catSum"); if (t) t.textContent = budgetSumText(S.page); }
+    return;
+  }
   const m = S.modal;
   if (!m) return;
   if (el.dataset.bind) m[el.dataset.bind] = el.type === "checkbox" ? el.checked : el.value;
@@ -745,6 +1069,12 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", (e) => {
   const el = e.target;
   if (el.dataset.act === "scan") { scanReceipt([...el.files]); el.value = ""; return; }
+  if (el.dataset.pbind && S.page) {
+    setPath(S.page, el.dataset.pbind, el.type === "checkbox" ? el.checked : el.value);
+    if (S.page.type === "budget" && el.dataset.pbind === "month") { Object.assign(S.page, budgetDraft(el.value)); render(); return; }
+    if (el.dataset.rerender) render();
+    return;
+  }
   const m = S.modal;
   if (!m) return;
   if (el.dataset.bind) { m[el.dataset.bind] = el.type === "checkbox" ? el.checked : el.value; if (el.dataset.rerender || el.dataset.bind === "amount") render(); return; }
@@ -783,7 +1113,25 @@ document.addEventListener("click", async (e) => {
   const m = S.modal;
   switch (a) {
     case "authTab": S.authTab = v; S.error = ""; render(); break;
-    case "tab": S.tab = v; render(); window.scrollTo(0, 0); break;
+    case "tab": S.tab = v; S.page = null; render(); window.scrollTo(0, 0); break;
+    case "openPage": openPage(v); break;
+    case "pageBack": S.page = null; render(); window.scrollTo(0, 0); break;
+    case "saveBudget": saveBudget(); break;
+    case "delBudget": if (confirm(`${v.replace("-", "年")}月からの予算の設定を削除しますか？`)) task(() => deleteDoc(doc(col("budgets"), v))); break;
+    case "catMove": moveCategory(v, +el.dataset.d); break;
+    case "catHide": { const c = S.cats.get(v); task(() => saveCategories(S.cats.all.map((x) => (x.id === c.id ? { ...x, hidden: !x.hidden } : x)))); break; }
+    case "catEdit": { const c = S.cats.get(v); S.modal = { type: "cat", ...c, colorHex: C.cssColor(c.color), split: C.categorySplit(c) }; render(); break; }
+    case "catAdd": S.modal = { type: "cat", isNew: true, id: "c" + Date.now().toString(36), label: "", emoji: v === "1" ? "💰" : "🏷️", colorHex: "#7e8a97", income: v === "1", savings: false, builtin: false, hidden: false, split: { mode: "default" } }; render(); break;
+    case "saveCat": saveCategory(); break;
+    case "delCat": if (confirm(`カテゴリ「${m.label}」を削除しますか？このカテゴリの明細は「その他」として表示されます。`)) task(() => saveCategories(S.cats.all.filter((x) => x.id !== m.id)), () => { S.modal = null; }); break;
+    case "recEdit": { const r = S.recurring.find((x) => x.id === v); S.modal = { type: "rec", ...r, split: C.splitOf(r), splitTouched: true, amount: String(r.amount) }; render(); break; }
+    case "recAdd": S.modal = { type: "rec", isNew: true, name: "", amount: "", income: false, category: "HOUSING", day: 27, payment: "デビット・口座振替", paidBy: S.user.uid, split: C.categorySplit(S.cats.get("HOUSING")), active: true, startMonth: C.ym(today()), lastPosted: "" }; render(); break;
+    case "recKind": m.income = v === "1"; m.category = m.income ? "SALARY" : "HOUSING"; render(); break;
+    case "saveRec": saveRecurring(); break;
+    case "delRec": if (confirm(`「${m.name}」を削除しますか？これまでに記録した明細は残ります。`)) task(() => deleteDoc(doc(col("recurring"), m.id)), () => { S.modal = null; }); break;
+    case "medYear": S.page.year += +v; loadMedical(); break;
+    case "medCsv": downloadCsv(`医療費_${S.page.year}.csv`, C.medicalCsv(S.page.rows ?? [], nameOf)); break;
+    case "saveRatio": saveRatio(); break;
     case "theme": themePref.id = v; store.set("kakeibo.theme", v); applyTheme(); render(); break;
     case "themeFollow": themePref.follow = !themePref.follow; store.set("kakeibo.themeFollowDark", themePref.follow ? "1" : "0"); applyTheme(); render(); break;
     case "logout": signOut(auth); break;

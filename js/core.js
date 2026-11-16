@@ -551,3 +551,65 @@ export function yenShort(n) {
   if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, "") + "万";
   return Math.round(n).toLocaleString("ja-JP");
 }
+
+// ---------------- 固定費（Android の Recurring と同じ） ----------------
+
+/** 固定費・定期収入を今日までに記録すべき月（yyyy-MM、最大12か月分さかのぼる） */
+export function monthsToPost(r, today) {
+  if (r.active === false || !(r.amount > 0)) return [];
+  const parse = (s) => (/^\d{4}-\d{2}$/.test(s ?? "") ? new Date(+s.slice(0, 4), +s.slice(5, 7) - 1, 1) : null);
+  const now = new Date(today.getFullYear(), today.getMonth(), 1);
+  const start = parse(r.startMonth) ?? now;
+  const last = parse(r.lastPosted);
+  let m = last && last >= start ? addMonths(last, 1) : start;
+  const floor = addMonths(now, -11);
+  if (m < floor) m = floor;
+  const out = [];
+  while (m <= now) {
+    const postDay = Math.min(Math.max(1, r.day ?? 1), daysIn(m));
+    if (m < now || today.getDate() >= postDay) out.push(ym(m));
+    m = addMonths(m, 1);
+  }
+  return out;
+}
+const daysIn = (m) => new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+/** 固定費を記録する日（その月の day 日。月末を超えるときは月末） */
+export function recurringDate(r, month) {
+  const m = new Date(+month.slice(0, 4), +month.slice(5, 7) - 1, 1);
+  return new Date(m.getFullYear(), m.getMonth(), Math.min(Math.max(1, r.day ?? 1), daysIn(m)));
+}
+
+// ---------------- カテゴリの保存（Android の CategoryDef.toMap と同じ形） ----------------
+
+export function categoryToStored(c, order) {
+  const split = c.income ? "default" : c.split ?? "default";
+  return {
+    id: c.id, label: c.label, emoji: c.emoji, color: Number(c.color) >>> 0, order,
+    hidden: !!c.hidden, builtin: !!c.builtin, income: !!c.income, savings: !!c.savings, split,
+    splitWeights: split === "ratio" && Object.keys(c.splitWeights ?? {}).length ? c.splitWeights : null,
+    splitAmounts: split === "amount" && Object.keys(c.splitAmounts ?? {}).length ? c.splitAmounts : null,
+  };
+}
+/** CSS の #rrggbb → Android の 0xFFRRGGBB */
+export const argbOf = (hex) => (0xff000000 + parseInt(String(hex).replace("#", ""), 16)) >>> 0;
+
+// ---------------- 医療費控除（Android の Medical と同じ） ----------------
+
+export const MEDICAL_THRESHOLD = 100000;
+export const medicalEstimate = (total, reimbursed) => Math.min(2000000, Math.max(0, total - reimbursed - MEDICAL_THRESHOLD));
+export function medicalKind(store) {
+  const s = String(store ?? "");
+  if (/薬局|ドラッグ|薬品|マツモトキヨシ|ウエルシア|サンドラッグ|ツルハ|スギ|ココカラ/.test(s)) return "医薬品購入";
+  if (/病院|クリニック|医院|診療所|歯科|眼科|皮膚科|耳鼻|整形|内科|外科|小児科|産婦人科|整骨|接骨|鍼|灸/.test(s)) return "診療・治療";
+  if (/介護/.test(s)) return "介護保険サービス";
+  return "その他の医療費";
+}
+/** 国税庁の「医療費集計フォーム」の項目順の CSV（Excel で開けるよう BOM 付き） */
+export function medicalCsv(rows, nameOf) {
+  const q = (v) => (/[",\r\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  const lines = [["医療を受けた方の氏名", "病院・薬局などの支払先の名称", "医療費の区分", "支払った医療費の額", "左のうち、補填される金額", "支払年月日"]];
+  for (const t of [...rows].sort((a, b) => a.date - b.date)) {
+    lines.push([nameOf(payerOf(t)), t.store ?? "", medicalKind(t.store), t.amount, 0, slashDate(new Date(t.date))]);
+  }
+  return "﻿" + lines.map((l) => l.map(q).join(",")).join("\r\n") + "\r\n";
+}

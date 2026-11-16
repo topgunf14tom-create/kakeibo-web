@@ -187,3 +187,27 @@ test("精算の明細の内訳は負担額の合計と一致する", () => {
   for (const u of m) assert.equal(lines.reduce((s, l) => s + (l.shares[u] ?? 0), 0), r.members.find((x) => x.uid === u).share);
   assert.deepEqual(C.settlementExcluded(list), { business: 1, payerOnly: 1 });
 });
+
+test("固定費を記録する月（Androidと同じ）", () => {
+  const r = { amount: 80000, day: 25, startMonth: "2026-09", lastPosted: "", active: true };
+  assert.deepEqual(C.monthsToPost(r, new Date(2026, 10, 16)), ["2026-09", "2026-10"]);
+  assert.deepEqual(C.monthsToPost(r, new Date(2026, 10, 25)), ["2026-09", "2026-10", "2026-11"]);
+  assert.deepEqual(C.monthsToPost({ ...r, lastPosted: "2026-10" }, new Date(2026, 10, 16)), []);
+  assert.deepEqual(C.monthsToPost({ ...r, active: false }, new Date(2026, 10, 30)), []);
+  assert.deepEqual(C.monthsToPost({ ...r, day: 31, startMonth: "2027-02" }, new Date(2027, 1, 28)), ["2027-02"]);
+  assert.equal(C.monthsToPost({ ...r, startMonth: "2024-01" }, new Date(2026, 10, 30)).length, 12);
+  assert.equal(C.recurringDate({ day: 31 }, "2026-02").getDate(), 28);
+});
+
+test("医療費控除とカテゴリの保存形", () => {
+  assert.equal(C.medicalEstimate(150000, 20000), 30000);
+  assert.equal(C.medicalEstimate(90000, 0), 0);
+  assert.equal(C.medicalKind("ウエルシア稲城店"), "医薬品購入");
+  assert.equal(C.medicalKind("やまだ歯科"), "診療・治療");
+  const csv = C.medicalCsv([{ amount: 3000, store: "やまだ歯科", date: new Date(2026, 4, 1).getTime(), createdBy: "a" }], () => "真志");
+  assert.ok(csv.startsWith("﻿医療を受けた方の氏名"));
+  assert.ok(csv.includes("真志,やまだ歯科,診療・治療,3000,0,2026/05/01"));
+  assert.equal(C.argbOf("#43a047"), 0xff43a047);
+  const s = C.categoryToStored({ id: "x", label: "家賃", emoji: "🏠", color: 0xff546e7a, split: "amount", splitAmounts: { a: 50000, b: 30000 } }, 3);
+  assert.deepEqual([s.order, s.split, s.splitAmounts.a, s.splitWeights], [3, "amount", 50000, null]);
+});

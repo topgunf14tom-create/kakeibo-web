@@ -241,3 +241,33 @@ button { cursor: pointer; border: none; background: none; }
 .sl-sub .payer { margin-right: 0; flex-shrink: 0; }
 .sl-share { padding-left: 60px; color: var(--text); }
 .sl-total { padding: 8px 2px 2px; }
+
+/* 設定のページ */
+.page-head { display: flex; align-items: center; gap: 4px; margin: -4px 0 10px -8px; }
+.page-head h2 { margin: 0; font-size: 1.25rem; }
+.menu { display: flex; flex-direction: column; }
+.menu button { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 2px; border-bottom: 1px dashed var(--line); }
+.menu button:last-child { border-bottom: 0; }
+.menu .mi { font-size: 1.3rem; width: 28px; text-align: center; }
+.menu .grow { display: flex; flex-direction: column; }
+.budget-form { display: grid; grid-template-columns: 1fr; gap: 0; }
+.budget-form label { display: grid; grid-template-columns: 1fr 140px; align-items: center; gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: .92rem; }
+.budget-form input { text-align: right; }
+.card-row { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; }
+.card-row .grow { display: flex; flex-direction: column; }
+.cat-list { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.cat-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px dashed var(--line); }
+.cat-row:last-child { border-bottom: 0; }
+.cat-row .grow { display: flex; flex-direction: column; min-width: 0; padding: 4px 6px; }
+.cat-row.off { opacity: .55; }
+.cat-row .dot { width: 34px; height: 34px; border-radius: 4px; }
+.icon.sm { width: 30px; height: 30px; font-size: .8rem; color: var(--muted); }
+.icon:disabled { opacity: .25; }
+.hide-sp { width: 40px; }
+.grid-cat { display: grid; grid-template-columns: 70px 1fr 64px; gap: 8px; align-items: end; }
+.emoji-in { text-align: center; font-size: 1.3rem; }
+input[type="color"] { width: 100%; height: 42px; padding: 2px; }
+.tx.off { opacity: .55; }
+.text.bad { color: var(--bad); }
+.cover-in-label { display: flex; flex-direction: column; gap: 4px; color: var(--cover-muted); font-size: .85rem; margin: 10px 0 2px; }
+.cover-in-label input { background: color-mix(in srgb, var(--cover) 80%, #fff); color: var(--cover-text); border-color: var(--cover-line); }
