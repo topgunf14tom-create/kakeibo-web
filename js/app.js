@@ -523,6 +523,36 @@ function drawChart() {
   });
 }
 
+/** 精算に入った明細の内訳（タップで明細を直せる） */
+function settleLinesHtml(members) {
+  const lines = C.settlementLines(S.settle.tx, members, S.settings.split);
+  const ex = C.settlementExcluded(S.settle.tx);
+  const dow = "日月火水木金土";
+  const modeText = (t) => {
+    const sp = C.splitOf(t);
+    if (sp.mode === "ratio") return "割合 " + members.map((u) => sp.weights?.[u] ?? 0).join(":");
+    if (sp.mode === "default") return "共通（標準の割合 " + members.map((u) => S.settings.split?.[u] ?? 1).join(":") + "）";
+    return C.splitLabel(sp.mode);
+  };
+  const sharesText = (sh) => members.map((u) => `${esc(nameOf(u))} ${C.yen(sh[u] ?? 0)}`).join("・");
+  const total = {};
+  for (const l of lines) for (const u of members) total[u] = (total[u] ?? 0) + (l.shares[u] ?? 0);
+  const exText = [ex.business ? `会社経費 ${ex.business}件` : "", ex.payerOnly ? `払った人だけ ${ex.payerOnly}件` : ""].filter(Boolean).join("、");
+  if (!lines.length) return exText ? `<div class="tiny muted">精算に入らない明細：${exText}</div>` : "";
+  return `<details class="settle-lines" open><summary><b class="small">精算に入った明細（${lines.length}件）</b></summary>
+    <div class="ledger">${lines.map(({ txn: t, shares: sh }) => {
+      const d = new Date(t.date);
+      return `<button class="sl" data-act="edit" data-id="${t.id}" data-income="0">
+        <span class="sl-top"><span class="tiny muted">${d.getMonth() + 1}/${d.getDate()}(${dow[d.getDay()]})</span><span class="grow ellipsis">${esc(t.store || S.cats.get(t.category).label)}</span><b class="num">${C.yen(t.amount)}</b></span>
+        <span class="sl-sub tiny"><i class="payer" style="background:${payerColor(t) || "var(--muted)"}"></i><span class="grow ellipsis muted">${esc(nameOf(C.payerOf(t)))}が払った・${esc(modeText(t))}</span></span>
+        <span class="sl-share tiny">負担　${sharesText(sh)}</span>
+      </button>`;
+    }).join("")}
+    <div class="sl-total small"><b>合計</b><span class="grow"></span><b>${sharesText(total)}</b></div></div>
+    ${exText ? `<div class="tiny muted">精算に入らない明細：${exText}</div>` : ""}
+  </details>`;
+}
+
 function viewMore() {
   const members = S.household?.members ?? [];
   const sm = S.settle.month;
@@ -555,6 +585,7 @@ function viewMore() {
         <table class="tbl"><tr><th></th><th>払った額</th><th>負担額</th><th>差額</th></tr>
         ${res.members.map((m) => `<tr><td>${esc(nameOf(m.uid))}</td><td>${C.yen(m.paid)}</td><td>${C.yen(m.share)}</td><td class="${m.paid - m.share < 0 ? "bad" : "good"}">${C.signedYen(m.paid - m.share)}</td></tr>`).join("")}</table>
         ${res.members.some((m) => m.carry) ? `<div class="small">前の月までの未精算：${res.members.filter((m) => m.carry).map((m) => `${esc(nameOf(m.uid))} ${m.carry > 0 ? "受け取り" : "支払い"} ${C.yen(Math.abs(m.carry))}`).join("／")}</div>` : ""}
+        ${settleLinesHtml(members)}
         ${S.settle.records.map((r) => `<div class="row small muted"><span>記録：${esc(nameOf(r.from))} → ${esc(nameOf(r.to))} ${C.yen(r.amount)}</span><button class="text small" data-act="delSettle" data-id="${r.id}">取り消す</button></div>`).join("")}
         <div class="tiny muted">負担額は明細ごとの「負担」（共通・半分ずつ・相手の分など）で計算します。会社経費と「払った人だけ」の明細は入りません。標準の割合（${members.map((u) => S.settings.split[u] ?? 1).join(":")}）の変更はAndroidアプリから行えます。</div>`}
     </div>
@@ -795,7 +826,7 @@ document.addEventListener("click", async (e) => {
       render(); break;
     case "edit": {
       const income = el.dataset.income === "1";
-      const t = [...S.monthTx, ...S.monthIn, ...S.stats.tx, ...S.stats.inc].find((x) => x.id === el.dataset.id && x.isIncome === income);
+      const t = [...S.monthTx, ...S.monthIn, ...S.stats.tx, ...S.stats.inc, ...S.settle.tx].find((x) => x.id === el.dataset.id && x.isIncome === income);
       if (!t) return;
       S.modal = { type: "entry", ...t, income, date: C.ymd(C.dateOf(t.date)), paidBy: C.payerOf(t), split: C.splitOf(t), splitTouched: true };
       render(); break;

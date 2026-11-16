@@ -228,3 +228,16 @@ button { cursor: pointer; border: none; background: none; }
 .bar i { display: block; height: 100%; }
 .bar i.good { background: var(--primary); } .bar i.warn { background: #e0a030; } .bar i.bad { background: var(--bad); }
 .payer { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+
+/* 精算の明細の内訳 */
+.settle-lines summary { cursor: pointer; padding: 4px 0; }
+.settle-lines .ledger { border-top: 1.5px solid var(--primary); margin-top: 4px; }
+.sl { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 8px 2px; border-bottom: 1px dashed var(--line); }
+.sl:hover { background: color-mix(in srgb, var(--surface) 92%, var(--primary)); }
+.sl-top, .sl-sub, .sl-total { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sl-top .tiny { width: 52px; flex-shrink: 0; }
+.sl-top b { font-weight: 600; white-space: nowrap; }
+.sl-sub { padding-left: 60px; gap: 5px; }
+.sl-sub .payer { margin-right: 0; flex-shrink: 0; }
+.sl-share { padding-left: 60px; color: var(--text); }
+.sl-total { padding: 8px 2px 2px; }

@@ -332,6 +332,19 @@ export function settlement(expenses, members, weights = {}, records = [], carry 
   return { total: shared.reduce((s, t) => s + t.amount, 0), members: balances, transfers: transfersOf(balances) };
 }
 
+/** 精算に入った明細の内訳（日付順）。各明細の shares を足すと settlement の負担額になる */
+export function settlementLines(expenses, members, weights = {}) {
+  return expenses.filter(isShared)
+    .sort((a, b) => (a.date - b.date) || ((a.createdAt ?? 0) - (b.createdAt ?? 0)))
+    .map((t) => ({ txn: t, shares: shares(t.amount, payerOf(t), splitOf(t), members, weights) }));
+}
+
+/** 精算に入らなかった明細の件数（自分だけの明細は数えない） */
+export function settlementExcluded(expenses) {
+  const v = expenses.filter((t) => !t.isIncome && !t.onlyMe);
+  return { business: v.filter((t) => t.business).length, payerOnly: v.filter((t) => !t.business && splitOf(t).mode === "payer").length };
+}
+
 function transfersOf(balances) {
   const debtors = balances.filter((b) => b.balance < 0).map((b) => [b.uid, -b.balance]).sort((a, b) => b[1] - a[1]);
   const creditors = balances.filter((b) => b.balance > 0).map((b) => [b.uid, b.balance]).sort((a, b) => b[1] - a[1]);

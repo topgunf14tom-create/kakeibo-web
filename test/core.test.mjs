@@ -170,3 +170,20 @@ test("支払いルール：家賃 5万・3万（金額が違えば同じ割合�
   const cats = new C.Categories([{ id: "C9", label: "家賃", split: "amount", splitAmounts: { masa: 50000, mizu: 30000 } }]);
   assert.deepEqual(C.categorySplit(cats.get("C9")), { mode: "amount", weights: {}, amounts: { masa: 50000, mizu: 30000 } });
 });
+
+test("精算の明細の内訳は負担額の合計と一致する", () => {
+  const d = (n) => new Date(2026, 10, n).getTime();
+  const list = [
+    { id: "a", amount: 6000, createdBy: "a", date: d(5) },
+    { id: "o", amount: 3001, createdBy: "a", splitMode: "other", date: d(3) },
+    { id: "b", amount: 2001, createdBy: "b", date: d(1) },
+    { id: "p", amount: 5000, createdBy: "b", splitMode: "payer", date: d(2) },
+    { id: "z", amount: 9000, createdBy: "a", business: true, date: d(2) },
+  ];
+  const m = ["a", "b"];
+  const lines = C.settlementLines(list, m, {});
+  assert.deepEqual(lines.map((l) => l.txn.id), ["b", "o", "a"]);
+  const r = C.settlement(list, m, {});
+  for (const u of m) assert.equal(lines.reduce((s, l) => s + (l.shares[u] ?? 0), 0), r.members.find((x) => x.uid === u).share);
+  assert.deepEqual(C.settlementExcluded(list), { business: 1, payerOnly: 1 });
+});
