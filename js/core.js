@@ -613,3 +613,63 @@ export function medicalCsv(rows, nameOf) {
   }
   return "﻿" + lines.map((l) => l.map(q).join(",")).join("\r\n") + "\r\n";
 }
+
+// ---------------- 家計簿（自分・相手・ふたり）。Android の stats/Book.kt と同じ ----------------
+
+export const BOTH = "both";
+/** その人の負担額 */
+export function shareOf(t, uid, members, weights = {}) {
+  if (isShared(t)) return shares(t.amount, payerOf(t), splitOf(t), members, weights)[uid] ?? 0;
+  return payerOf(t) === uid ? t.amount : 0;
+}
+/** book（uid か BOTH）の家計簿で見た明細。共通の出費は負担分にして、元の金額を fullAmount に残す */
+export function bookView(txns, book, members, weights = {}) {
+  if (book === BOTH) return txns.filter((t) => !t.onlyMe);
+  if (members.length < 2) return txns;
+  const out = [];
+  for (const t of txns) {
+    if (t.onlyMe || t.isIncome || t.business) { if (payerOf(t) === book) out.push(t); continue; }
+    const v = shareOf(t, book, members, weights);
+    if (v === 0) continue;
+    out.push(v === t.amount ? t : { ...t, amount: v, fullAmount: t.amount });
+  }
+  return out;
+}
+/** 目標・予算の持ち主がこの家計簿か（持ち主が空 = ふたり） */
+export const ownsBook = (owner, book) => (book === BOTH ? !owner : owner === book);
+
+// ---------------- ふるさと納税の上限の目安。Android の stats/Personal.kt（Furusato）と同じ ----------------
+
+export function salaryDeduction(salary) {
+  if (salary <= 1900000) return Math.min(salary, 650000);
+  if (salary <= 3600000) return Math.floor((salary * 30) / 100) + 80000;
+  if (salary <= 6600000) return Math.floor((salary * 20) / 100) + 440000;
+  if (salary <= 8500000) return Math.floor((salary * 10) / 100) + 1100000;
+  return 1950000;
+}
+function incomeTaxBasic(income, year) {
+  if (year < 2025 || year > 2026) return income <= 23500000 ? 580000 : 0;
+  if (income <= 1320000) return 950000;
+  if (income <= 3360000) return 880000;
+  if (income <= 4890000) return 680000;
+  if (income <= 6550000) return 630000;
+  if (income <= 23500000) return 580000;
+  return 0;
+}
+function incomeTaxRate(taxable) {
+  const steps = [[1949000, 0.05], [3299000, 0.1], [6949000, 0.2], [8999000, 0.23], [17999000, 0.33], [39999000, 0.4]];
+  for (const [lim, r] of steps) if (taxable <= lim) return r;
+  return 0.45;
+}
+const floorThousand = (v) => (v <= 0 ? 0 : Math.floor(v / 1000) * 1000);
+export function furusatoLimit(salary, social, ideco, other, year) {
+  if (!(salary > 0)) return 0;
+  const income = Math.max(0, salary - salaryDeduction(salary));
+  const common = (social || 0) + (ideco || 0) + (other || 0);
+  const residentTaxable = floorThousand(income - common - 430000);
+  const shotokuwari = Math.max(0, Math.trunc(residentTaxable / 10) - 2500);
+  const taxable = floorThousand(income - common - incomeTaxBasic(income, year));
+  const rate = incomeTaxRate(taxable);
+  if (shotokuwari <= 0) return 0;
+  return Math.floor((shotokuwari * 0.2) / (0.9 - rate * 1.021)) + 2000;
+}

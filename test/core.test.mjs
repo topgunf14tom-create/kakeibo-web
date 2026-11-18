@@ -211,3 +211,31 @@ test("医療費控除とカテゴリの保存形", () => {
   const s = C.categoryToStored({ id: "x", label: "家賃", emoji: "🏠", color: 0xff546e7a, split: "amount", splitAmounts: { a: 50000, b: 30000 } }, 3);
   assert.deepEqual([s.order, s.split, s.splitAmounts.a, s.splitWeights], [3, "amount", 50000, null]);
 });
+
+test("家計簿ごとの金額（Androidと同じ）", () => {
+  const m = ["a", "b"];
+  const all = [
+    { id: "rent", amount: 80000, createdBy: "a", splitMode: "amount", splitAmounts: { a: 50000, b: 30000 } },
+    { id: "food", amount: 3001, createdBy: "b" },
+    { id: "mine", amount: 1200, createdBy: "b", splitMode: "payer" },
+    { id: "lend", amount: 5000, createdBy: "a", splitMode: "other" },
+    { id: "sec", amount: 900, createdBy: "a", onlyMe: true },
+    { id: "pay", amount: 300000, createdBy: "a", isIncome: true },
+    { id: "biz", amount: 7000, createdBy: "b", business: true },
+  ];
+  const obj = (l) => Object.fromEntries(l.map((t) => [t.id, t.amount]));
+  assert.deepEqual(obj(C.bookView(all, "a", m)), { rent: 50000, food: 1501, sec: 900, pay: 300000 });
+  assert.deepEqual(obj(C.bookView(all, "b", m)), { rent: 30000, food: 1500, mine: 1200, lend: 5000, biz: 7000 });
+  assert.equal(C.bookView(all, "a", m).find((t) => t.id === "rent").fullAmount, 80000);
+  assert.equal(C.bookView(all, C.BOTH, m).length, all.length - 1);
+  assert.equal(C.ownsBook("", C.BOTH), true);
+  assert.equal(C.ownsBook("a", "a"), true);
+  assert.equal(C.ownsBook("", "a"), false);
+});
+
+test("ふるさと納税の上限（Androidのテストと同じ値）", () => {
+  assert.equal(C.salaryDeduction(6700000), 1770000);
+  assert.equal(C.furusatoLimit(6700000, 1000000, 276000, 0, 2026), 82185);
+  assert.ok(C.furusatoLimit(6700000, 1000000, 0, 0, 2026) > 82185);
+  assert.equal(C.furusatoLimit(0, 0, 0, 0, 2026), 0);
+});

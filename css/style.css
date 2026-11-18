@@ -271,3 +271,14 @@ input[type="color"] { width: 100%; height: 42px; padding: 2px; }
 .text.bad { color: var(--bad); }
 .cover-in-label { display: flex; flex-direction: column; gap: 4px; color: var(--cover-muted); font-size: .85rem; margin: 10px 0 2px; }
 .cover-in-label input { background: color-mix(in srgb, var(--cover) 80%, #fff); color: var(--cover-text); border-color: var(--cover-line); }
+
+/* 家計簿の切り替え・資産 */
+.book-switch { margin: 0 0 10px; }
+.book-switch .chips { margin-bottom: 2px; }
+.spark { width: 100%; height: 110px; display: block; }
+.divbars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; align-items: end; height: 90px; }
+.divbars span { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.divbars i { width: 70%; background: var(--primary); min-height: 1px; }
+.divbars em { font-style: normal; font-size: 10px; color: var(--muted); margin-top: 2px; }
+.hold-amt { display: flex; flex-direction: column; align-items: flex-end; padding-right: 14px; white-space: nowrap; }
+.hold-amt b { font-weight: 600; }

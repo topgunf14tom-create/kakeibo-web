@@ -37,7 +37,8 @@ const S = {
   cats: new C.Categories([]), settings: C.settingsFrom(null), budgets: [], rules: {}, renames: {}, goals: [], usage: null,
   tab: "record",
   month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), monthTx: [], monthIn: [],
-  stats: { type: "month", anchor: today(), member: null, shareMode: false, cat: null, tx: [], inc: [], prev: null, lastYear: null, review: null, bar: null },
+  stats: { type: "month", anchor: today(), member: null, shareMode: false, cat: null, tx: [], inc: [], priv: [], prev: null, lastYear: null, review: null, bar: null },
+  book: "", priv: [], memberBudgets: {}, furusato: {}, assets: null,
   settle: { month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), tx: [], records: [], all: [], closes: {}, carry: {}, carryKey: "" },
   authTab: "login", modal: null, busy: false, error: "", reviewBusy: false,
   page: null, recurring: [],
@@ -111,6 +112,16 @@ function subscribeHousehold() {
     });
   }));
   sub("goals", () => onSnapshot(col("goals"), (s) => { S.goals = s.docs.map((d) => ({ id: d.id, ...d.data() })); render(); }));
+  sub("memberBudgets", () => onSnapshot(col("memberBudgets"), (s) => {
+    S.memberBudgets = {};
+    s.docs.forEach((d) => { const b = d.data(); if (b.uid && b.month) (S.memberBudgets[b.uid] ??= []).push({ month: b.month, total: b.total ?? null, categories: b.categories ?? {} }); });
+    render();
+  }));
+  sub("furusato", () => onSnapshot(col("furusato"), (s) => { S.furusato = Object.fromEntries(s.docs.map((d) => [d.id, d.data()])); render(); }));
+  sub("assets", () => onSnapshot(doc(col("shared"), "assets"), (s) => {
+    try { S.assets = s.exists() ? { ...JSON.parse(s.data().json), fetchedAt: s.data().fetchedAt, owner: s.data().owner } : null; } catch { S.assets = null; }
+    render();
+  }));
   let posted = false;
   sub("recurring", () => onSnapshot(col("recurring"), (s) => {
     S.recurring = s.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -124,14 +135,19 @@ function subscribeHousehold() {
 }
 
 function rangeQuery(name, start, end) {
-  return query(col(name), where("date", ">=", C.millisOf(start)), where("date", "<", C.millisOf(end)), orderBy("date", "desc"));
+  const c = typeof name === "string" ? col(name) : name;
+  return query(c, where("date", ">=", C.millisOf(start)), where("date", "<", C.millisOf(end)), orderBy("date", "desc"));
 }
+/** 自分だけに見える明細（households/{id}/private/{uid}/transactions。Android と同じ場所） */
+const privCol = () => collection(db, "households", S.hid, "private", S.user.uid, "transactions");
+const privFromDoc = (d) => ({ ...txFromDoc(d, false), onlyMe: true });
 const sortTx = (a) => a.sort((x, y) => y.date - x.date || (y.createdAt ?? 0) - (x.createdAt ?? 0));
 
 function subscribeMonth() {
   const s = S.month, e = C.addMonths(s, 1);
   sub("monthTx", () => onSnapshot(rangeQuery("transactions", s, e), (q) => { S.monthTx = sortTx(q.docs.map((d) => txFromDoc(d, false))); render(); }));
   sub("monthIn", () => onSnapshot(rangeQuery("incomes", s, e), (q) => { S.monthIn = sortTx(q.docs.map((d) => txFromDoc(d, true))); render(); }));
+  sub("monthPriv", () => onSnapshot(rangeQuery(privCol(), s, e), (q) => { S.priv = sortTx(q.docs.map(privFromDoc)); render(); }, () => { S.priv = []; }));
 }
 
 function statsPeriod() { return C.Period.of(S.stats.type, S.stats.anchor, S.settings.weekStartsMonday); }
@@ -141,6 +157,7 @@ function subscribeStats() {
   S.stats.bar = null;
   sub("statsTx", () => onSnapshot(rangeQuery("transactions", p.start, p.end), (q) => { S.stats.tx = q.docs.map((d) => txFromDoc(d, false)); render(); }));
   sub("statsIn", () => onSnapshot(rangeQuery("incomes", p.start, p.end), (q) => { S.stats.inc = q.docs.map((d) => txFromDoc(d, true)); render(); }));
+  sub("statsPriv", () => onSnapshot(rangeQuery(privCol(), p.start, p.end), (q) => { S.stats.priv = q.docs.map(privFromDoc); render(); }, () => { S.stats.priv = []; }));
   sub("review", p.type === "month"
     ? () => onSnapshot(doc(db, "households", S.hid, "reviews", C.ym(p.start)), (s) => { S.stats.review = s.data()?.text ?? null; render(); })
     : null);
@@ -252,6 +269,7 @@ function themeCard() {
 const TAB_ICONS = {
   record: "M19.5 3.5 18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2v14H3v3c0 1.66 1.34 3 3 3h12c1.66 0 3-1.34 3-3V2l-1.5 1.5zM19 19c0 .55-.45 1-1 1s-1-.45-1-1v-3H8V5h11v14zM9 7h6v2H9zm7 0h2v2h-2zm-7 3h6v2H9zm7 0h2v2h-2z",
   stats: "M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z",
+  assets: "M21 18v1c0 1.1-.9 2-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14c1.1 0 2 .9 2 2v1h-9a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z",
   more: "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z",
 };
 
@@ -264,9 +282,9 @@ function render() {
   const sheetScroll = document.querySelector(".sheet")?.scrollTop ?? 0;
   $app.innerHTML = `
     <header class="top"><h1>${esc(S.household?.name ?? "家計簿")}</h1></header>
-    <main class="page">${S.page ? viewPage() : S.tab === "record" ? viewRecord() : S.tab === "stats" ? viewStats() : viewMore()}</main>
+    <main class="page">${S.page ? viewPage() : S.tab === "record" ? viewRecord() : S.tab === "stats" ? viewStats() : S.tab === "assets" ? viewAssets() : viewMore()}</main>
     <nav class="tabs">
-      ${[["record", "記録"], ["stats", "集計"], ["more", "設定"]].map(([k, l]) =>
+      ${[["record", "記録"], ["stats", "集計"], ...(S.assets ? [["assets", "資産"]] : []), ["more", "設定"]].map(([k, l]) =>
         `<button data-act="tab" data-v="${k}" class="${S.tab === k ? "on" : ""}"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${TAB_ICONS[k]}"/></svg></span>${l}</button>`).join("")}
     </nav>
     ${S.modal ? viewModal() : ""}`;
@@ -340,7 +358,7 @@ function txRow(t) {
   const c = S.cats.get(t.category);
   const sp = C.splitOf(t).mode;
   const tag = t.isIncome ? "" : t.business ? (t.reimbursed ? "会社経費（精算済み）" : "会社経費") : t.onlyMe ? "" : sp !== "default" ? C.splitLabel(sp) : "";
-  const sub = [c.label, t.special ? "特別費" : "", tag, t.payment, t.memo, t.createdByName ? `記録 ${t.createdByName}` : ""].filter(Boolean).join("／");
+  const sub = [t.fullAmount ? `全体 ${C.yen(t.fullAmount)}のうち` : "", c.label, t.onlyMe ? "🔒自分だけ" : "", t.special ? "特別費" : "", tag, t.payment, t.memo, t.createdByName ? `記録 ${t.createdByName}` : ""].filter(Boolean).join("／");
   const band = payerColor(t);
   return `<button class="tx" data-act="edit" data-id="${t.id}" data-income="${t.isIncome ? 1 : 0}">
     <i class="band" style="background:${band || "transparent"}"></i>
@@ -357,13 +375,36 @@ const coverLine = (label, amount, cls = "", sub = "", act = "") =>
 const slip = (title, sub, act, v = "", urgent = false) =>
   `<button class="slip ${urgent ? "urgent" : ""}" data-act="${act}" data-v="${v}"><i></i><span class="grow"><b>${title}</b><span class="small muted">${sub}</span></span><span class="open">開く</span></button>`;
 
+// ======================= 家計簿（自分・相手・ふたり） =======================
+
+const members_ = () => S.household?.members ?? [];
+/** 見ている家計簿（uid か C.BOTH）。空なら自分 */
+const curBook = () => S.book || S.user.uid;
+const bookOf = (list) => C.bookView(list, curBook(), members_(), S.settings.split);
+/** 見ている家計簿の予算（ふたり＝家族の予算、各自＝その人の予算） */
+const bookBudgets = (book = curBook()) => (book === C.BOTH ? S.budgets : S.memberBudgets[book] ?? []);
+const bookGoals = () => (members_().length > 1 ? S.goals.filter((g) => C.ownsBook(g.owner ?? "", curBook())) : S.goals);
+
+function bookSwitch() {
+  const ms = members_();
+  if (ms.length < 2) return "";
+  const me = S.user.uid, b = curBook();
+  const order = [me, ...ms.filter((u) => u !== me)];
+  const note = b === C.BOTH ? "ふたりの合計。共通の出費は全額で数えます"
+    : b === me ? "共通の出費は自分の負担分で数えます" : `${esc(nameOf(b))}の家計簿（見るだけ）。共通の出費は${esc(nameOf(b))}の負担分で数えます`;
+  return `<div class="book-switch"><div class="chips">${order.map((u) => `<button data-act="book" data-v="${u === me ? "" : u}" class="${b === u ? "on" : ""}">${u === me ? "自分の家計簿" : `${esc(nameOf(u))}の家計簿`}</button>`).join("")}
+    <button data-act="book" data-v="${C.BOTH}" class="${b === C.BOTH ? "on" : ""}">ふたり</button></div><div class="tiny muted">${note}</div></div>`;
+}
+
 function viewRecord() {
   const m = S.month;
   // 会社経費は一覧には出すが、支出の合計・予算・貯蓄率には入れない
-  const spend = S.monthTx.filter(C.everyday);
+  const monthTx = bookOf([...S.monthTx, ...S.priv]);
+  const monthIn = bookOf(S.monthIn);
+  const spend = monthTx.filter(C.everyday);
   const total = spend.reduce((s, t) => s + t.amount, 0);
-  const inc = S.monthIn.reduce((s, t) => s + t.amount, 0);
-  const budget = C.resolveBudget(C.ym(m), S.budgets);
+  const inc = monthIn.reduce((s, t) => s + t.amount, 0);
+  const budget = C.resolveBudget(C.ym(m), bookBudgets());
   const period = C.Period.of("month", m);
   const byCat = C.aggregate(spend, period).byCategory;
   const target = (S.household?.members ?? []).length > 1 ? settleTarget() : null;
@@ -374,13 +415,13 @@ function viewRecord() {
     const msg = r ? (r.transfers.length ? r.transfers.map((t) => `${esc(nameOf(t.from))} → ${esc(nameOf(t.to))} ${C.yen(t.amount)}`).join("、") : "精算は必要ありません ✓") : "金額を確認しましょう";
     settleNote = slip(`${target.getMonth() + 1}月の精算`, msg, "goSettle", C.ym(target), !!r?.transfers.length);
   }
-  const all = sortTx([...S.monthTx, ...S.monthIn]);
+  const all = sortTx([...monthTx, ...monthIn]);
   const groups = {};
   for (const t of all) (groups[t.date] ??= []).push(t);
-  const goal = [...S.goals].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))[0];
+  const goal = [...bookGoals()].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))[0];
   const bal = inc > 0 ? C.balance(inc, total, savingsOf(spend)) : null;
   const dow = "日月火水木金土";
-  return `
+  return `${bookSwitch()}
     <div class="month-head"><b class="num">${m.getMonth() + 1}</b><span><span class="tiny muted">${m.getFullYear()}年</span><span class="mh-tsuki">月</span></span>
       <span class="sp"></span><button class="icon" data-act="month" data-v="-1" aria-label="前の月">‹</button><button class="icon" data-act="month" data-v="1" aria-label="次の月">›</button></div>
     <div class="cover"><div class="cover-in">
@@ -413,7 +454,7 @@ function goalCard(g, withButtons) {
   const r = g.target > 0 ? saved / g.target : 0;
   const need = C.monthlyNeeded(g, today());
   return `<div class="card">
-    <div class="row"><b>🎯 ${esc(g.name)}</b>${withButtons ? `<button class="text small" data-act="delGoal" data-id="${g.id}">削除</button>` : ""}</div>
+    <div class="row"><b>🎯 ${esc(g.name)}${members_().length > 1 ? `<span class="tiny muted">　${g.owner ? (g.owner === S.user.uid ? "自分の目標" : `${esc(nameOf(g.owner))}の目標`) : "ふたりの目標"}</span>` : ""}</b>${withButtons ? `<button class="text small" data-act="delGoal" data-id="${g.id}">削除</button>` : ""}</div>
     <div>${C.yen(saved)} / ${C.yen(g.target)}（${Math.floor(r * 100)}%）</div>
     <div class="bar"><i class="good" style="width:${Math.min(100, r * 100)}%"></i></div>
     <div class="small muted">${saved >= g.target ? "🎉 達成しました" : need != null ? `期限 ${g.deadline.replace("-", "/")} まで、毎月 ${C.yen(need)} で達成` : `あと ${C.yen(g.target - saved)}`}</div>
@@ -424,24 +465,17 @@ function goalCard(g, withButtons) {
 /** 集計に使う明細：会社経費を除き、人を選んだときは記録した分か負担額（割り勘の自分の分）にする */
 function statsTx() {
   const st = S.stats;
-  const members = S.household?.members ?? [];
-  const base = st.tx.filter(C.everyday);
-  if (!st.member) return base;
-  if (!st.shareMode) return base.filter((t) => t.createdBy === st.member);
-  return base.map((t) => {
-    const v = C.isShared(t) ? (C.shares(t.amount, C.payerOf(t), C.splitOf(t), members, S.settings.split)[st.member] ?? 0)
-      : (C.payerOf(t) === st.member ? t.amount : 0);
-    return v ? { ...t, amount: v } : null;
-  }).filter(Boolean);
+  return bookOf([...st.tx, ...st.priv].filter(C.everyday));
 }
 
 function viewStats() {
   const p = statsPeriod();
   const st = S.stats;
   const tx = statsTx();
-  const inc = (st.member ? st.inc.filter((t) => C.payerOf(t) === st.member) : st.inc).reduce((s, t) => s + t.amount, 0);
+  const inc = bookOf(st.inc).reduce((s, t) => s + t.amount, 0);
+  const both = curBook() === C.BOTH || (S.household?.members ?? []).length < 2;
   const agg = C.aggregate(tx, p);
-  const budget = st.member ? null : C.budgetFor(p, S.budgets);
+  const budget = C.budgetFor(p, bookBudgets());
   const shown = st.cat ? tx.filter((t) => t.category === st.cat) : tx;
   const members = S.household?.members ?? [];
   const cmp = (label, before) => {
@@ -454,13 +488,11 @@ function viewStats() {
   return `
     <div class="seg">${[["week", "週"], ["month", "月"], ["year", "年"]].map(([k, l]) => `<button data-act="statsType" data-v="${k}" class="${st.type === k ? "on" : ""}">${l}</button>`).join("")}</div>
     <div class="nav"><button data-act="statsShift" data-v="-1">‹</button><h2>${p.label}</h2><button data-act="statsShift" data-v="1">›</button></div>
-    ${members.length > 1 ? `<div class="chips"><button data-act="member" data-v="" class="${st.member ? "" : "on"}">全員</button>${members.map((u) => `<button data-act="member" data-v="${u}" class="${st.member === u ? "on" : ""}">${esc(nameOf(u))}</button>`).join("")}</div>` : ""}
-    ${st.member ? `<div class="chips"><button data-act="shareMode" data-v="0" class="${st.shareMode ? "" : "on"}">記録した分</button><button data-act="shareMode" data-v="1" class="${st.shareMode ? "on" : ""}">負担額</button></div>
-      <div class="tiny muted">${st.shareMode ? "割り勘の負担（共通・半分ずつ・相手の分など）で、この人が負担する額を集計しています" : "この人が記録した明細を集計しています"}</div>` : ""}
+    ${bookSwitch()}
     <div class="card primary-bg">
       <div class="small">合計出費</div><div class="big">${C.yen(agg.total)}</div>
       <div class="small">${agg.count}件 · 1日平均 ${C.yen(p.days ? agg.total / p.days : 0)}</div>
-      ${st.member ? "" : cmp({ week: "前週比", month: "前月比", year: "前年比" }[p.type], st.prev) + (p.type === "month" ? cmp("前年同月比", st.lastYear) : "")}
+      ${!both ? "" : cmp({ week: "前週比", month: "前月比", year: "前年比" }[p.type], st.prev) + (p.type === "month" ? cmp("前年同月比", st.lastYear) : "")}
       ${inc > 0 ? `<div>収入 ${C.yen(inc)}</div><b class="${inc - agg.total < 0 ? "bad" : "good"}">収支 ${C.signedYen(inc - agg.total)}</b>${savingsLine(C.balance(inc, agg.total, savingsOf(tx)))}` : ""}
       ${budget?.total > 0 ? budgetLine(agg.total, budget.total, p) : ""}
     </div>
@@ -468,14 +500,14 @@ function viewStats() {
       <div class="row"><b>✨ AIのふりかえり</b><button class="text small" data-act="aiReview" ${S.reviewBusy ? "disabled" : ""}>${S.reviewBusy ? "作成中…" : st.review ? "作り直す" : "作成する"}</button></div>
       <div class="small ${st.review ? "" : "muted"} pre">${esc(st.review ?? "この月の支出・収入・予算の数字だけをAIに送り、気づきを3〜4行でまとめます（AIの回数を1回使います）。")}</div></div>` : ""}
     <div class="card">
-      <b>カテゴリ別</b>
+      <div class="row"><b>カテゴリ別</b><span class="tiny muted">タップで明細</span></div>
       ${agg.byCategory.length ? agg.byCategory.map((s) => {
         const c = S.cats.get(s.id);
         const limit = budget?.categories?.[s.id];
         const r = limit ? s.amount / limit : 0;
-        return `<button class="catrow ${st.cat === s.id ? "sel" : ""}" data-act="cat" data-v="${s.id}">
+        return `<button class="catrow" data-act="openCat" data-v="${s.id}">
           <span class="row"><span><i class="swatch" style="background:${C.cssColor(c.color)}"></i>${c.emoji} ${esc(c.label)}</span>
-          <span><span class="tiny muted">${agg.total ? Math.floor((s.amount * 100) / agg.total) : 0}% · ${s.count}件</span> <b>${C.yen(s.amount)}</b></span></span>
+          <span><span class="tiny muted">${agg.total ? Math.floor((s.amount * 100) / agg.total) : 0}% · ${s.count}件</span> <b>${C.yen(s.amount)}</b> <span class="muted">›</span></span></span>
           ${limit ? `<span class="bar"><i class="${r > 1 ? "bad" : r >= 0.8 ? "warn" : "good"}" style="width:${Math.min(100, r * 100)}%"></i></span>
             <span class="tiny ${s.amount > limit ? "bad" : "muted"}">予算 ${C.yen(limit)} · ${s.amount > limit ? "超過 " + C.yen(s.amount - limit) : "残り " + C.yen(limit - s.amount)}</span>` : ""}
         </button>`;
@@ -566,9 +598,9 @@ function viewMore() {
   const res = C.settlement(S.settle.tx, members, S.settings.split, S.settle.records, S.settle.carry);
   const closed = !!S.settle.closes[C.ym(sm)];
   const sharedCount = S.settle.tx.filter(C.isShared).length;
-  const b = C.resolveBudget(C.ym(S.month), S.budgets);
+  const b = C.resolveBudget(C.ym(S.month), bookBudgets());
   const spentBy = {};
-  for (const t of S.monthTx.filter(C.everyday)) spentBy[t.category] = (spentBy[t.category] ?? 0) + t.amount;
+  for (const t of bookOf([...S.monthTx, ...S.priv]).filter(C.everyday)) spentBy[t.category] = (spentBy[t.category] ?? 0) + t.amount;
   const u = S.usage ?? C.normalizeUsage(null, today());
   return `
     <div class="card stack">
@@ -605,7 +637,8 @@ function viewMore() {
       <b>🗂 家計の設定</b>
       <div class="menu">
         ${[["budget", "💰", "予算", "月の全体・カテゴリ別の予算"], ["cats", "🏷️", "カテゴリ・支払いルール", "追加・並べ替え・非表示、カテゴリごとの負担（家賃 5万・3万など）"],
-          ["recurring", "🔁", "固定費・定期収入", "家賃・保険・給与など、毎月決まった日に自動で記録"], ["medical", "💊", "医療費控除の集計", "1年分の医療費と控除の目安、確定申告用のCSV"]]
+          ["recurring", "🔁", "固定費・定期収入", "家賃・保険・給与など、毎月決まった日に自動で記録"], ["medical", "💊", "医療費控除の集計", "1年分の医療費と控除の目安、確定申告用のCSV"],
+          ["furusato", "🏯", "ふるさと納税", "自分の上限の目安と残り枠、家族の寄附"]]
           .map(([k, i, t, d]) => `<button data-act="openPage" data-v="${k}"><span class="mi">${i}</span><span class="grow"><b>${t}</b><span class="tiny muted">${d}</span></span><span class="muted">›</span></button>`).join("")}
       </div>
       <div class="tiny muted">カード明細・通販の自動取り込みと出張手当はAndroidアプリで行います。</div>
@@ -615,7 +648,7 @@ function viewMore() {
     ${S.goals.length ? [...S.goals].sort((a, c) => (a.createdAt ?? 0) - (c.createdAt ?? 0)).map((g) => goalCard(g, true)).join("") : `<p class="muted small">目標はまだありません。</p>`}
 
     <div class="card stack">
-      <b>💰 今月の予算</b>
+      <b>💰 今月の予算${members_().length > 1 ? `<span class="tiny muted">　${curBook() === C.BOTH ? "ふたり" : curBook() === S.user.uid ? "自分の家計簿" : `${esc(nameOf(curBook()))}の家計簿`}</span>` : ""}</b>
       ${b ? `${b.total ? budgetLine(Object.values(spentBy).reduce((a, c) => a + c, 0), b.total, C.Period.of("month", S.month), "全体") : ""}
         ${Object.entries(b.categories ?? {}).map(([id, v]) => budgetLine(spentBy[id] ?? 0, v, C.Period.of("month", S.month), S.cats.get(id).emoji + S.cats.get(id).label)).join("")}`
         : `<p class="muted small">予算はまだありません。</p>`}
@@ -680,7 +713,8 @@ function viewModal() {
       <label>日付<input type="date" data-bind="date" value="${m.date}"></label>
       <label>${m.income ? "入金元" : "店名"}<input data-bind="store" value="${esc(m.store ?? "")}"></label>
       <label>メモ<input data-bind="memo" value="${esc(m.memo ?? "")}"></label>
-      ${m.income ? "" : payFields(m, { amount: String(m.amount ?? "").replace(/[,¥円]/g, "") })}
+      ${m.income || m.onlyMe ? "" : payFields(m, { amount: String(m.amount ?? "").replace(/[,¥円]/g, "") })}
+      ${m.income ? "" : `<label class="check"><input type="checkbox" data-act="onlyMe" ${m.onlyMe ? "checked" : ""}> 🔒 自分だけに見える（相手の家計簿・ふたり・精算に入りません）</label>`}
       ${m.createdByName ? `<div class="tiny muted">記録: ${esc(m.createdByName)}</div>` : ""}
       <button class="primary" data-act="saveEntry" ${S.busy ? "disabled" : ""}>保存</button>
       ${m.id ? `<button class="text bad" data-act="deleteEntry">この明細を削除</button>` : ""}
@@ -723,9 +757,10 @@ function viewModal() {
   if (m.type === "goal") {
     return `<div class="modal"><div class="sheet stack">
       <div class="row"><h2>貯金目標を追加</h2><button class="text" data-act="close">✕</button></div>
-      <label>目標（例：新婚旅行）<input data-bind="name"></label>
-      <label>目標金額（円）<input data-bind="target" inputmode="numeric"></label>
-      <label>期限（任意）<input type="month" data-bind="deadline"></label>
+      <label>目標（例：新婚旅行）<input data-bind="name" value="${esc(m.name ?? "")}"></label>
+      <label>目標金額（円）<input data-bind="target" inputmode="numeric" value="${esc(m.target ?? "")}"></label>
+      <label>期限（任意）<input type="month" data-bind="deadline" value="${esc(m.deadline ?? "")}"></label>
+      ${members_().length > 1 ? `<div class="chips"><button data-act="goalOwner" data-v="${S.user.uid}" class="${m.owner === S.user.uid ? "on" : ""}">自分の目標</button><button data-act="goalOwner" data-v="" class="${!m.owner ? "on" : ""}">ふたりの目標</button></div>` : ""}
       <button class="primary" data-act="saveGoal">保存</button></div></div>`;
   }
   return "";
@@ -738,8 +773,12 @@ const ymLabel = (k) => `${+k.slice(0, 4)}年${+k.slice(5, 7)}月`;
 const pageHead = (title) => `<div class="page-head"><button class="icon" data-act="pageBack" aria-label="戻る">←</button><h2>${title}</h2></div>`;
 
 function openPage(type) {
-  if (type === "budget") S.page = { type, month: C.ym(today()), ...budgetDraft(C.ym(today())) };
+  if (type === "budget") {
+    const owner = members_().length > 1 && curBook() !== C.BOTH ? S.user.uid : C.BOTH;
+    S.page = { type, owner, month: C.ym(today()), ...budgetDraft(C.ym(today()), owner) };
+  }
   else if (type === "medical") { S.page = { type, year: today().getFullYear(), reimbursed: "", rows: null }; loadMedical(); }
+  else if (type === "furusato") { S.page = { type, year: today().getFullYear(), form: null, rows: null }; loadFurusato(); }
   else S.page = { type };
   render(); window.scrollTo(0, 0);
 }
@@ -750,20 +789,26 @@ function viewPage() {
   if (p.type === "cats") return viewCategoriesPage();
   if (p.type === "recurring") return viewRecurringPage();
   if (p.type === "medical") return viewMedicalPage(p);
+  if (p.type === "catDetail") return viewCategoryDetail(p);
+  if (p.type === "furusato") return viewFurusatoPage(p);
   return "";
 }
 
 // ---------- 予算 ----------
 
 /** その月から使う予算の下書き（その月の設定があればそれ、なければその月に効いている設定） */
-function budgetDraft(key) {
-  const b = S.budgets.find((x) => x.month === key) ?? C.resolveBudget(key, S.budgets);
+function budgetDraft(key, owner = S.page?.owner ?? C.BOTH) {
+  const list = bookBudgets(owner);
+  const b = list.find((x) => x.month === key) ?? C.resolveBudget(key, list);
   return { total: b?.total != null ? String(b.total) : "", cats: Object.fromEntries(Object.entries(b?.categories ?? {}).map(([k, v]) => [k, String(v)])) };
 }
 
 function viewBudgetPage(p) {
-  const exists = S.budgets.some((b) => b.month === p.month);
+  const list = bookBudgets(p.owner);
+  const exists = list.some((b) => b.month === p.month);
   return `${pageHead("予算")}
+    ${members_().length > 1 ? `<div class="chips"><button data-act="budgetOwner" data-v="${S.user.uid}" class="${p.owner === S.user.uid ? "on" : ""}">自分の家計簿の予算</button><button data-act="budgetOwner" data-v="${C.BOTH}" class="${p.owner === C.BOTH ? "on" : ""}">ふたりの予算</button></div>
+      <p class="tiny muted">${p.owner === C.BOTH ? "ふたりの合計（共通の出費は全額）に対する予算です。" : "自分の家計簿（共通の出費は自分の負担分）に対する予算です。"}</p>` : ""}
     <div class="card stack">
       <label>この設定を使い始める月<input type="month" data-pbind="month" value="${p.month}"></label>
       <div class="tiny muted">${exists ? `${ymLabel(p.month)}からの設定を直します。` : `${ymLabel(p.month)}から、次の設定がある月まで使います。`}</div>
@@ -775,7 +820,7 @@ function viewBudgetPage(p) {
       <button class="primary" data-act="saveBudget" ${S.busy ? "disabled" : ""}>保存</button>
     </div>
     <h3>これまでの設定</h3>
-    ${S.budgets.length ? [...S.budgets].sort((a, b) => b.month.localeCompare(a.month)).map((b) => `<div class="row card-row">
+    ${list.length ? [...list].sort((a, b) => b.month.localeCompare(a.month)).map((b) => `<div class="row card-row">
       <span class="grow"><b>${ymLabel(b.month)}から</b><span class="tiny muted">${[b.total ? `全体 ${C.yen(b.total)}` : "", `カテゴリ ${Object.keys(b.categories ?? {}).length}件`].filter(Boolean).join("・")}</span></span>
       <button class="text small" data-act="delBudget" data-v="${b.month}">削除</button></div>`).join("") : `<p class="muted small">まだありません。</p>`}`;
 }
@@ -791,7 +836,9 @@ function saveBudget() {
   const total = num(p.total) > 0 ? num(p.total) : null;
   const categories = Object.fromEntries(Object.entries(p.cats).map(([k, v]) => [k, num(v)]).filter(([, n]) => n > 0));
   if (total == null && !Object.keys(categories).length) { toast("全体かカテゴリのどれかに金額を入れてください"); return; }
-  task(() => setDoc(doc(col("budgets"), p.month), { total, categories }), () => toast(`${ymLabel(p.month)}からの予算を保存しました`));
+  const ref = p.owner === C.BOTH ? doc(col("budgets"), p.month) : doc(col("memberBudgets"), `${p.owner}_${p.month}`);
+  const data = p.owner === C.BOTH ? { total, categories } : { total, categories, uid: p.owner, month: p.month };
+  task(() => setDoc(ref, data), () => toast(`${ymLabel(p.month)}からの予算を保存しました`));
 }
 
 // ---------- カテゴリ・支払いルール ----------
@@ -1006,6 +1053,152 @@ function downloadCsv(name, text) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// ---------- カテゴリの明細（集計タブからタップ） ----------
+
+function viewCategoryDetail(p) {
+  const per = statsPeriod();
+  const c = S.cats.get(p.id);
+  const list = sortTx(statsTx().filter((t) => t.category === p.id));
+  const total = list.reduce((a, t) => a + t.amount, 0);
+  const limit = C.budgetFor(per, bookBudgets())?.categories?.[p.id];
+  const stores = Object.entries(list.reduce((o, t) => { const k = t.store || "店名なし"; (o[k] ??= [0, 0]); o[k][0]++; o[k][1] += t.amount; return o; }, {}))
+    .sort((a, b) => b[1][1] - a[1][1]);
+  const groups = {};
+  for (const t of list) (groups[t.date] ??= []).push(t);
+  const dow = "日月火水木金土";
+  return `${pageHead(`${c.emoji} ${esc(c.label)}`)}${bookSwitch()}
+    <div class="nav"><button data-act="statsShift" data-v="-1">‹</button><h2>${per.label}</h2><button data-act="statsShift" data-v="1">›</button></div>
+    <div class="card">
+      <div class="row"><span class="small muted">${esc(c.label)}の合計</span><span class="small muted">${list.length}件</span></div>
+      <div class="big num">${C.yen(total)}</div>
+      <div class="row small"><span>1日平均</span><span class="num">${C.yen(per.days ? total / per.days : 0)}</span></div>
+      ${list.length ? `<div class="row small"><span>1回あたり</span><span class="num">${C.yen(total / list.length)}</span></div>` : ""}
+      ${limit ? budgetLine(total, limit, per, "予算") : ""}
+    </div>
+    ${stores.length > 1 ? `<h3>よく使った店</h3><div class="card">${stores.slice(0, 5).map(([n, [k, a]]) => `<div class="row small"><span class="grow ellipsis">${esc(n)}<span class="tiny muted">（${k}回）</span></span><b class="num">${C.yen(a)}</b></div>`).join("")}</div>` : ""}
+    <h3>明細</h3>
+    ${list.length ? Object.entries(groups).map(([d, l]) => {
+      const dt = new Date(+d), w = dt.getDay();
+      return `<div class="day"><b class="num">${dt.getMonth() + 1}/${dt.getDate()}</b><span class="dow ${w === 0 ? "sun" : w === 6 ? "sat" : ""}">${dow[w]}</span><span class="sp"></span><span class="num muted">${C.yen(l.reduce((a, t) => a + t.amount, 0))}</span></div>
+        <div class="ledger">${l.map(txRow).join("")}</div>`;
+    }).join("") : `<p class="muted small">この期間の明細はありません。</p>`}`;
+}
+
+// ---------- ふるさと納税（自分の上限と、家族の分を見る） ----------
+
+const personalRef = () => doc(db, "households", S.hid, "private", S.user.uid, "meta", "personal");
+
+async function loadFurusato() {
+  const p = S.page, y = p.year;
+  try {
+    const [ps, q] = await Promise.all([getDoc(personalRef()), getDocs(rangeQuery("transactions", new Date(y, 0, 1), new Date(y + 1, 0, 1)))]);
+    if (S.page !== p) return;
+    const d = ps.exists() ? ps.data() : {};
+    p.form = Object.fromEntries(["salary", "social", "ideco", "otherDeduction", "furusatoLimit"].map((k) => [k, d[k] ? String(d[k]) : ""]));
+    p.rows = q.docs.map((x) => txFromDoc(x, false)).filter((t) => t.category === "FURUSATO");
+  } catch (e) { console.error(e); p.form ??= {}; p.rows = []; toast(friendly(e)); }
+  render();
+}
+
+const furusatoOf = (f, year) => (num(f.furusatoLimit) > 0 ? num(f.furusatoLimit)
+  : C.furusatoLimit(num(f.salary) || 0, num(f.social) || 0, num(f.ideco) || 0, num(f.otherDeduction) || 0, year));
+
+function furusatoCard(title, limit, rows, editable) {
+  const done = rows.reduce((a, t) => a + t.amount, 0);
+  const r = limit > 0 ? done / limit : 0;
+  return `<div class="card stack">
+    <b>${title}</b>
+    <div class="big num">${C.yen(done)}<span class="small muted"> / 上限の目安 ${limit > 0 ? C.yen(limit) : "未設定"}</span></div>
+    ${limit > 0 ? `<div class="bar"><i class="${r > 1 ? "bad" : "good"}" style="width:${Math.min(100, r * 100)}%"></i></div>
+      <div class="small ${done > limit ? "bad" : ""}">${done <= limit ? `残り ${C.yen(limit - done)}（12月31日までの寄附が今年の分）` : `目安を ${C.yen(done - limit)} 超えています（超えた分は自己負担）`}</div>`
+      : `<div class="tiny muted">${editable ? "下で年収などを入れて保存すると、上限の目安を計算します" : "本人が上限の計算を保存すると表示されます"}</div>`}
+    ${rows.length ? `<div class="tiny muted">${rows.length}件。ワンストップ特例が使えるのは寄附先が5自治体までです</div>
+      <div class="ledger">${sortTx([...rows]).map(txRow).join("")}</div>` : ""}
+  </div>`;
+}
+
+function viewFurusatoPage(p) {
+  if (!p.form || !p.rows) return `${pageHead("ふるさと納税")}<div class="center"><div class="spinner"></div></div>`;
+  const me = S.user.uid, y = p.year;
+  const mine = p.rows.filter((t) => C.payerOf(t) === me);
+  const limit = furusatoOf(p.form, y);
+  const fields = [["salary", "給与収入（年額・税込）", "源泉徴収票の「支払金額」"], ["social", "社会保険料（年額）", "健康保険・厚生年金・雇用保険の合計（iDeCo は下に）"],
+    ["ideco", "iDeCo などの掛金（年額）", ""], ["otherDeduction", "そのほかの所得控除（年額）", "生命保険料控除・地震保険料控除など"],
+    ["furusatoLimit", "上限を自分で決める（任意）", "ポータルサイトのシミュレーションの結果などを使う場合"]];
+  return `${pageHead("ふるさと納税")}
+    ${furusatoCard(`${y}年の自分の寄附`, limit, mine, true)}
+    ${members_().filter((u) => u !== me).map((u) => {
+      const sh = S.furusato[u];
+      return furusatoCard(`${esc(nameOf(u))}の${y}年の寄附（見るだけ）`, sh?.year === y ? sh.limit ?? 0 : 0, p.rows.filter((t) => C.payerOf(t) === u), false);
+    }).join("")}
+    <h3>上限の計算</h3>
+    <p class="tiny muted">入れた金額は自分だけに保存され、家族には上限の目安だけが見えます。会社員で扶養なしの場合の目安です（住宅ローン控除・医療費控除などは含みません）。寄附は「ふるさと納税」カテゴリで記録すると数えます。</p>
+    <div class="card stack">${fields.map(([k, l, h]) => `<label>${l}<input data-pbind="form.${k}" inputmode="numeric" value="${esc(p.form[k] ?? "")}" placeholder="0">${h ? `<span class="tiny muted">${h}</span>` : ""}</label>`).join("")}
+      <button class="primary" data-act="saveFurusato" ${S.busy ? "disabled" : ""}>計算して保存</button></div>`;
+}
+
+function saveFurusato() {
+  const p = S.page, y = p.year;
+  const data = Object.fromEntries(Object.entries(p.form).map(([k, v]) => [k, num(v) > 0 ? num(v) : 0]));
+  const limit = furusatoOf(p.form, y);
+  task(async () => {
+    await setDoc(personalRef(), data, { merge: true });
+    await setDoc(doc(col("furusato"), S.user.uid), { year: y, limit, updatedAt: Date.now() });
+  }, () => toast(limit > 0 ? `上限の目安は ${C.yen(limit)} です` : "保存しました"));
+}
+
+// ---------- 資産（Android アプリが写した配当積立帳の集計を見る） ----------
+
+function lineChart(points, key, color) {
+  if (points.length < 2) return "";
+  const W = 340, H = 110, vals = points.map((x) => x[key]);
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const xy = vals.map((v, i) => [(i / (vals.length - 1)) * W, H - 6 - ((v - lo) / span) * (H - 16)]);
+  const d = xy.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" class="spark" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+    <div class="row tiny muted"><span>${esc(points[0].d)}</span><span>${C.yenShort(lo)}〜${C.yenShort(hi)}</span><span>${esc(points.at(-1).d)}</span></div>`;
+}
+
+function viewAssets() {
+  const a = S.assets;
+  if (!a) return `<div class="blank"><b>資産のデータがまだありません</b><p class="muted">Androidアプリの「資産」タブを開くと、ここにも表示されます。</p></div>`;
+  const ch = a.prev?.net != null ? a.net - a.prev.net : null;
+  const cats = (a.categories ?? []).filter((c) => c.value > 0);
+  const catTotal = cats.reduce((s, c) => s + c.value, 0) || 1;
+  const colors = ["#3e5c76", "#b0657b", "#5f8f6b", "#c79a3b", "#7a6fa8", "#4f9aa8", "#a86f4f", "#8a8a8a"];
+  const g = a.goal;
+  const hold = [...(a.holdings ?? [])].sort((x, y) => y.value - x.value);
+  const todayS = C.ymd(today()).replace(/\//g, "-");
+  const events = (a.events ?? []).filter((e) => (e.date ?? "") >= todayS.slice(0, e.month ? 7 : 10)).slice(0, 8);
+  const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+  const div = a.monthly?.div ?? [];
+  const divMax = Math.max(1, ...div);
+  return `
+    <div class="tiny muted" style="margin-bottom:6px">${a.owner ? `${esc(nameOf(a.owner))}の資産（配当積立帳）。見るだけ` : "配当積立帳の資産"}${a.fetchedAt ? `・${new Date(a.fetchedAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 時点` : ""}</div>
+    <div class="cover"><div class="cover-in">
+      <div class="row cover-label"><span>純資産</span>${ch != null ? `<span class="small ${ch < 0 ? "bad" : "good"}">前回から ${C.signedYen(ch)}</span>` : ""}</div>
+      <div class="big">${C.yen(a.net)}</div>
+      <div class="crule"></div>
+      ${coverLine("金融資産", C.yen(a.fin))}
+      ${a.finPl ? coverLine("評価損益", C.signedYen(a.finPl), a.finPl < 0 ? "bad" : "good") : ""}
+      ${a.liab ? coverLine("負債", C.yen(a.liab), "bad") : ""}
+      ${a.divNet ? coverLine("年間配当（税引後）", C.yen(a.divNet), "", a.yutai ? `優待 ${C.yen(a.yutai)} 相当` : "") : ""}
+      ${cats.length ? `<div class="stack-bar">${cats.map((c, i) => `<i style="flex:${c.value};background:${colors[i % colors.length]}"></i>`).join("")}</div>
+        <div class="cat2">${cats.map((c, i) => `<span><i style="background:${colors[i % colors.length]}"></i><span class="ellipsis">${esc(c.label)}</span><b class="num">${Math.round((c.value * 100) / catTotal)}%</b></span>`).join("")}</div>` : ""}
+    </div></div>
+    ${g ? `<h3>目標</h3><div class="card"><div class="row"><b>${C.yen(g.amount)}（${esc(g.date ?? "")}）</b><span class="num">${(g.progress ?? 0).toFixed(1)}%</span></div>
+      <div class="bar"><i class="good" style="width:${Math.min(100, g.progress ?? 0)}%"></i></div>
+      <div class="small muted">あと${g.monthsLeft}か月。積立（月${C.yenShort(g.monthly)}）だけなら、期限には${C.yenShort(g.projected)}円${g.shortfall > 0 ? `（${C.yenShort(g.shortfall)}円足りない見込み）` : ""}</div></div>` : ""}
+    ${(a.history ?? []).length > 1 ? `<h3>純資産の推移</h3><div class="card">${lineChart(a.history, "n", "var(--primary)")}</div>` : ""}
+    ${div.some((v) => v > 0) ? `<h3>月ごとの配当</h3><div class="card"><div class="divbars">${div.map((v, i) => `<span><i style="height:${(v / divMax) * 100}%"></i><em>${i + 1}</em></span>`).join("")}</div></div>` : ""}
+    ${events.length ? `<h3>これからの予定</h3><div class="card">${events.map((e) => `<div class="row small"><span class="grow ellipsis"><span class="tiny muted">${e.month ? `${+e.date.slice(5, 7)}月` : md(e.date)}</span> ${esc(e.name)}<span class="tiny muted">　${{ div: "配当の入金", yutai_rights: "優待の権利付最終日" }[e.type] ?? "優待が届く"}</span></span>${e.amount ? `<b class="num">${C.yen(e.amount)}</b>` : ""}</div>`).join("")}</div>` : ""}
+    ${hold.length ? `<h3>保有銘柄（${hold.length}）</h3><div class="ledger">${hold.map((h) => `<div class="tx"><i class="band"></i>
+      <span class="grow"><span class="ellipsis tx-name">${esc(h.name)}</span><span class="small muted ellipsis">${[h.kindLabel, h.account, h.yieldPct != null ? `利回り ${h.yieldPct.toFixed(2)}%` : "", h.div ? `配当 ${C.yen(h.div)}` : ""].filter(Boolean).map(esc).join("／")}</span></span>
+      <span class="hold-amt"><b class="num">${C.yen(h.value)}</b>${h.pl != null ? `<span class="tiny ${h.pl < 0 ? "bad" : "good"}">${C.signedYen(h.pl)}${h.plPct != null ? `（${h.plPct.toFixed(1)}%）` : ""}</span>` : ""}</span></div>`).join("")}</div>` : ""}
+    ${(a.insurances ?? []).length ? `<h3>積立保険</h3><div class="card">${a.insurances.map((x) => `<div class="row small"><span class="grow ellipsis">${esc(x.name)}<span class="tiny muted">　払込 ${C.yen(x.paid)}${x.ratio != null ? `・返戻率 ${x.ratio.toFixed(1)}%` : ""}</span></span><b class="num">${C.yen(x.value)}</b></div>`).join("")}</div>` : ""}
+    ${(a.others ?? []).length ? `<h3>そのほか</h3><div class="card">${a.others.map((x) => `<div class="row small"><span class="grow ellipsis">${esc(x.name)}<span class="tiny muted">　${esc(x.type)}</span></span><b class="num">${C.yen(x.value)}</b></div>`).join("")}</div>` : ""}`;
+}
+
 // ---------- 標準の負担割合 ----------
 
 function saveRatio() {
@@ -1069,6 +1262,12 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", (e) => {
   const el = e.target;
   if (el.dataset.act === "scan") { scanReceipt([...el.files]); el.value = ""; return; }
+  if (el.dataset.act === "onlyMe" && S.modal) {
+    const m = S.modal;
+    m.onlyMe = el.checked;
+    if (m.onlyMe) { m.paidBy = S.user.uid; m.split = { mode: "payer" }; } else if (!m.splitTouched) m.split = C.categorySplit(S.cats.get(m.category));
+    render(); return;
+  }
   if (el.dataset.pbind && S.page) {
     setPath(S.page, el.dataset.pbind, el.type === "checkbox" ? el.checked : el.value);
     if (S.page.type === "budget" && el.dataset.pbind === "month") { Object.assign(S.page, budgetDraft(el.value)); render(); return; }
@@ -1117,7 +1316,10 @@ document.addEventListener("click", async (e) => {
     case "openPage": openPage(v); break;
     case "pageBack": S.page = null; render(); window.scrollTo(0, 0); break;
     case "saveBudget": saveBudget(); break;
-    case "delBudget": if (confirm(`${v.replace("-", "年")}月からの予算の設定を削除しますか？`)) task(() => deleteDoc(doc(col("budgets"), v))); break;
+    case "delBudget": if (confirm(`${v.replace("-", "年")}月からの予算の設定を削除しますか？`)) {
+      const o = S.page?.owner ?? C.BOTH;
+      task(() => deleteDoc(o === C.BOTH ? doc(col("budgets"), v) : doc(col("memberBudgets"), `${o}_${v}`)));
+    } break;
     case "catMove": moveCategory(v, +el.dataset.d); break;
     case "catHide": { const c = S.cats.get(v); task(() => saveCategories(S.cats.all.map((x) => (x.id === c.id ? { ...x, hidden: !x.hidden } : x)))); break; }
     case "catEdit": { const c = S.cats.get(v); S.modal = { type: "cat", ...c, colorHex: C.cssColor(c.color), split: C.categorySplit(c) }; render(); break; }
@@ -1132,6 +1334,7 @@ document.addEventListener("click", async (e) => {
     case "medYear": S.page.year += +v; loadMedical(); break;
     case "medCsv": downloadCsv(`医療費_${S.page.year}.csv`, C.medicalCsv(S.page.rows ?? [], nameOf)); break;
     case "saveRatio": saveRatio(); break;
+    case "saveFurusato": saveFurusato(); break;
     case "theme": themePref.id = v; store.set("kakeibo.theme", v); applyTheme(); render(); break;
     case "themeFollow": themePref.follow = !themePref.follow; store.set("kakeibo.themeFollowDark", themePref.follow ? "1" : "0"); applyTheme(); render(); break;
     case "logout": signOut(auth); break;
@@ -1139,6 +1342,10 @@ document.addEventListener("click", async (e) => {
     case "statsType": S.stats.type = v; subscribeStats(); render(); break;
     case "statsShift": S.stats.anchor = statsPeriod().shift(+v).start; subscribeStats(); render(); break;
     case "member": S.stats.member = v || null; render(); break;
+    case "book": S.book = v; render(); break;
+    case "openCat": S.page = { type: "catDetail", id: v }; render(); window.scrollTo(0, 0); break;
+    case "goalOwner": m.owner = v; render(); break;
+    case "budgetOwner": Object.assign(S.page, { owner: v }, budgetDraft(S.page.month, v)); render(); break;
     case "shareMode": S.stats.shareMode = v === "1"; render(); break;
     case "splitMode": {
       const members = S.household?.members ?? [];
@@ -1174,9 +1381,9 @@ document.addEventListener("click", async (e) => {
       render(); break;
     case "edit": {
       const income = el.dataset.income === "1";
-      const t = [...S.monthTx, ...S.monthIn, ...S.stats.tx, ...S.stats.inc, ...S.settle.tx].find((x) => x.id === el.dataset.id && x.isIncome === income);
+      const t = [...S.monthTx, ...S.monthIn, ...S.stats.tx, ...S.stats.inc, ...S.settle.tx, ...S.priv, ...S.stats.priv].find((x) => x.id === el.dataset.id && x.isIncome === income);
       if (!t) return;
-      S.modal = { type: "entry", ...t, income, date: C.ymd(C.dateOf(t.date)), paidBy: C.payerOf(t), split: C.splitOf(t), splitTouched: true };
+      S.modal = { type: "entry", ...t, income, date: C.ymd(C.dateOf(t.date)), paidBy: C.payerOf(t), split: C.splitOf(t), splitTouched: true, wasOnlyMe: !!t.onlyMe, onlyMe: !!t.onlyMe };
       render(); break;
     }
     case "kind": m.income = v === "1"; m.category = m.income ? "SALARY" : "FOOD"; render(); break;
@@ -1184,7 +1391,7 @@ document.addEventListener("click", async (e) => {
     case "saveEntry": saveEntry(); break;
     case "deleteEntry":
       if (confirm("この明細を削除しますか？家族全員の家計簿から削除されます。")) {
-        task(() => deleteDoc(doc(db, "households", S.hid, m.income ? "incomes" : "transactions", m.id)), () => { S.modal = null; });
+        task(() => deleteDoc(m.wasOnlyMe ? doc(privCol(), m.id) : doc(db, "households", S.hid, m.income ? "incomes" : "transactions", m.id)), () => { S.modal = null; });
       }
       break;
     case "delItem": m.review.items.splice(+v, 1); render(); break;
@@ -1207,14 +1414,14 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "delSettle": task(() => deleteDoc(doc(db, "households", S.hid, "settlements", el.dataset.id))); break;
-    case "addGoal": S.modal = { type: "goal" }; render(); break;
+    case "addGoal": S.modal = { type: "goal", owner: curBook() === C.BOTH ? "" : S.user.uid }; render(); break;
     case "unblockAi":
       task(() => setDoc(doc(db, "households", S.hid, "meta", "aiUsage"), { blockedDay: "" }, { merge: true }), () => toast("AI解析の停止を解除しました"));
       break;
     case "saveGoal": {
       const target = Math.round(Number(String(m.target ?? "").replace(/[,¥円]/g, "")));
       if (!m.name?.trim() || !(target > 0)) { toast("目標と金額を入れてください"); return; }
-      task(() => addDoc(col("goals"), { name: m.name.trim(), target, deadline: m.deadline ?? "", deposits: [], createdAt: Date.now() }), () => { S.modal = null; });
+      task(() => addDoc(col("goals"), { name: m.name.trim(), target, deadline: m.deadline ?? "", deposits: [], createdAt: Date.now(), owner: m.owner ?? "" }), () => { S.modal = null; });
       break;
     }
     case "deposit": {
@@ -1242,7 +1449,25 @@ function saveEntry() {
     recurringId: m.recurringId ?? null, isIncome: m.income, updatedAt: m.id ? Date.now() : 0,
   };
   if (t.split.mode === "amount" && Object.values(t.split.amounts ?? {}).reduce((a, b) => a + b, 0) > amount) { toast("相手の分が金額を超えています"); return; }
-  if (!m.income && t.payment) localStorage.setItem("lastPayment", t.payment);
+  if (!m.income && t.payment) { try { localStorage.setItem("lastPayment", t.payment); } catch { /* 覚えられなくてもよい */ } }
+  if (m.onlyMe && !m.income) {
+    // 自分だけの明細は private に保存し、共有の明細からは消す（Android と同じ）
+    const pt = { ...t, paidBy: S.user.uid, split: { mode: "payer" } };
+    const ref = m.id ? doc(privCol(), m.id) : doc(privCol());
+    task(async () => {
+      await setDoc(ref, { ...txToMap(pt), private: true });
+      if (m.id && !m.wasOnlyMe) await deleteDoc(doc(col("transactions"), m.id));
+    }, () => { S.modal = null; toast("自分だけに見える明細として保存しました"); });
+    return;
+  }
+  if (m.wasOnlyMe) {
+    // 自分だけ → 共有に戻す
+    task(async () => {
+      await setDoc(doc(col("transactions"), m.id), txToMap(t));
+      await deleteDoc(doc(privCol(), m.id));
+    }, () => { S.modal = null; toast("家族と共有する明細にしました"); });
+    return;
+  }
   const c = col(m.income ? "incomes" : "transactions");
   // 編集は merge で書き、Android で付けた項目（自動取り込みの元・会社経費の精算済みなど）を消さない
   task(() => (m.id ? setDoc(doc(c, m.id), txToMap(t), { merge: true }) : addDoc(c, txToMap(t))), () => { S.modal = null; toast("保存しました"); });
