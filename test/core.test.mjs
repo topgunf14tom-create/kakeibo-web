@@ -239,3 +239,24 @@ test("ふるさと納税の上限（Androidのテストと同じ値）", () => {
   assert.ok(C.furusatoLimit(6700000, 1000000, 0, 0, 2026) > 82185);
   assert.equal(C.furusatoLimit(0, 0, 0, 0, 2026), 0);
 });
+
+test("予算の提案・おかしな出費・ライフプラン・レポート・保証（Androidと同じ）", () => {
+  const d = (m, day) => new Date(2026, m - 1, day).getTime();
+  const t = (id, amount, category, date, store = "") => ({ id, amount, category, date, store, createdBy: "a" });
+  const b = C.suggestBudget([t("1", 30000, "FOOD", d(8, 3)), t("2", 31000, "FOOD", d(9, 3)), t("3", 29500, "FOOD", d(10, 3)), t("4", 9000, "DINING", d(10, 9)), t("5", 99999, "FOOD", d(11, 2))], "2026-11");
+  assert.deepEqual(b, { total: 34000, categories: { FOOD: 31000, DINING: 3000 } });
+  const dup = C.anomalies([t("a", 1280, "DINING", d(11, 1), "スシロー"), t("b", 1280, "DINING", d(11, 2), "スシロー")], [], new Date(2026, 10, 3).getTime());
+  assert.equal(dup.filter((x) => x.kind === "dup").length, 1);
+  const subs = [t("s1", 1490, "HOBBY", d(8, 5), "Netflix"), t("s2", 1490, "HOBBY", d(9, 5), "Netflix"), t("s3", 1590, "HOBBY", d(10, 5), "Netflix")];
+  assert.equal(C.anomalies([], subs, d(10, 20)).filter((x) => x.kind === "up").length, 1);
+  const hist = [1, 2, 3, 4, 5, 6].map((i) => t("h" + i, 3000 + i * 100, "DINING", d(9, i)));
+  assert.equal(C.anomalies([t("x", 12000, "DINING", d(11, 3), "焼肉")], hist, d(11, 4)).filter((x) => x.kind === "large").length, 1);
+  assert.equal(C.monthlySaving([t("1", 200000, "FOOD", d(10, 1))], [{ ...t("i", 320000, "SALARY", d(10, 25)), isIncome: true }], "2026-11", 1), 120000);
+  const pts = C.lifePlan(1000000, 100000, "2026-11", 8, [{ id: "e", name: "新婚旅行", budget: 800000, start: "2027-05-01" }], { e: 300000 });
+  assert.equal(pts[6].balance, 1000000 + 6 * 100000 - 500000);
+  assert.deepEqual(pts[6].events, ["新婚旅行 -¥500,000"]);
+  const rep = C.monthReport([t("1", 50000, "FOOD", d(10, 1)), t("2", 8000, "DINING", d(10, 2))], [], [t("p", 40000, "FOOD", d(9, 1))], { categories: { FOOD: 45000 } });
+  assert.deepEqual([rep.spend, rep.prevSpend, rep.over], [58000, 40000, [["FOOD", 5000]]]);
+  const w = C.warrantyList([{ ...t("w1", 1, "X", 0), warrantyUntil: "2026-12-01" }, { ...t("w2", 1, "X", 0), warrantyUntil: "2026-01-01" }], new Date(2026, 10, 19));
+  assert.deepEqual(w.map((x) => [x.t.id, x.days]), [["w2", -322], ["w1", 12]]);
+});

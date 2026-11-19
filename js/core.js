@@ -539,7 +539,7 @@ export const settingsFrom = (m) => ({
   aiEnabled: m?.aiEnabled ?? true, aiAuto: m?.aiAuto ?? true,
   aiDailyLimit: m?.aiDailyLimit ?? 20, aiMonthlyLimit: m?.aiMonthlyLimit ?? 100,
   aiModel: m?.aiModel || DEFAULT_AI_MODEL, weekStartsMonday: m?.weekStartsMonday ?? true, split: m?.split ?? {},
-  tripDaily: m?.tripDaily ?? 3500, tripHolidayTravel: m?.tripHolidayTravel ?? 1500, settleStart: m?.settleStart || DEFAULT_SETTLE_START,
+  tripDaily: m?.tripDaily ?? 3500, tripHolidayTravel: m?.tripHolidayTravel ?? 1500, settleStart: m?.settleStart || DEFAULT_SETTLE_START, payout: m?.payout ?? {},
 });
 
 // ---------------- 表示 ----------------
@@ -672,4 +672,107 @@ export function furusatoLimit(salary, social, ideco, other, year) {
   const rate = incomeTaxRate(taxable);
   if (shotokuwari <= 0) return 0;
   return Math.floor((shotokuwari * 0.2) / (0.9 - rate * 1.021)) + 2000;
+}
+
+// ---------------- 7. 予算の自動提案（Android の BudgetSuggest と同じ） ----------------
+
+/** month（yyyy-MM）の前の months か月の毎月の支出の平均から、千円単位で切り上げた予算案 */
+export function suggestBudget(txns, month, months = 3) {
+  const base = new Date(+month.slice(0, 4), +month.slice(5, 7) - 1, 1);
+  const keys = new Set(Array.from({ length: months }, (_, i) => ym(addMonths(base, -(i + 1)))));
+  const inRange = txns.filter((t) => everyday(t) && !t.isIncome && keys.has(ym(new Date(t.date))));
+  if (!inRange.length) return null;
+  const sums = {};
+  for (const t of inRange) sums[t.category] = (sums[t.category] ?? 0) + t.amount;
+  const categories = Object.fromEntries(Object.entries(sums).map(([k, v]) => [k, Math.ceil(v / months / 1000) * 1000]).filter(([, v]) => v > 0));
+  return { total: Object.values(categories).reduce((a, b) => a + b, 0), categories };
+}
+
+// ---------------- 8. おかしな出費（Android の Anomalies と同じ考え方） ----------------
+
+const dayMs = 86400000;
+const mdText = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}`; };
+export function anomalies(recent, history, today) {
+  const out = [];
+  // 二重の支払い：同じ店・同じ金額が2日以内
+  const list = recent.filter((t) => !t.isIncome && t.store && t.amount > 0).sort((a, b) => a.date - b.date);
+  const seen = new Set();
+  list.forEach((a, i) => {
+    if (seen.has(a.id)) return;
+    const b = list.slice(i + 1).find((x) => !seen.has(x.id) && x.store.trim() === a.store.trim() && x.amount === a.amount && x.date - a.date <= 2 * dayMs && (!a.receiptId || a.receiptId !== x.receiptId));
+    if (!b) return;
+    seen.add(a.id); seen.add(b.id);
+    out.push({ kind: "dup", title: "二重の支払い？", detail: `${a.store} ${yen(a.amount)} が ${mdText(a.date)} と ${mdText(b.date)} にあります`, ids: [a.id, b.id] });
+  });
+  // 値上がり：同じ店で25〜35日おきに3回以上、最後が前回より高い
+  const key = (s) => String(s).normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const groups = {};
+  for (const t of history.filter((t) => !t.isIncome && t.amount > 0 && counts(t) && t.store)) (groups[key(t.store)] ??= []).push(t);
+  for (const g of Object.values(groups)) {
+    const h = [...g].sort((a, b) => a.date - b.date).filter((t, i, arr) => !i || ymd(new Date(t.date)) !== ymd(new Date(arr[i - 1].date)));
+    if (h.length < 3) continue;
+    const gaps = h.slice(1).map((t, i) => Math.round((t.date - h[i].date) / dayMs));
+    if (gaps.filter((x) => x >= 25 && x <= 35).length < gaps.length - 1) continue;
+    const last = h.at(-1), prev = h.at(-2);
+    if (last.amount > prev.amount && today - last.date <= 45 * dayMs)
+      out.push({ kind: "up", title: "値上がり", detail: `${last.store} が ${yen(prev.amount)} → ${yen(last.amount)}（${mdText(last.date)}）`, ids: [last.id] });
+  }
+  // 大きい出費：そのカテゴリのいつもの金額（中央値）の3倍以上、5,000円以上
+  const byCat = {};
+  for (const t of history.filter((t) => everyday(t) && !t.isIncome && !recent.some((r) => r.id === t.id))) (byCat[t.category] ??= []).push(t.amount);
+  const med = Object.fromEntries(Object.entries(byCat).filter(([, l]) => l.length >= 4).map(([k, l]) => [k, [...l].sort((a, b) => a - b)[Math.floor(l.length / 2)]]));
+  for (const t of recent.filter((t) => everyday(t) && !t.isIncome && t.amount >= 5000)) {
+    const m = med[t.category];
+    if (m > 0 && t.amount >= m * 3) out.push({ kind: "large", title: "いつもより大きい出費", detail: `${t.store || "店名なし"} ${yen(t.amount)}（いつもは ${yen(m)} くらい）`, ids: [t.id] });
+  }
+  return out;
+}
+
+// ---------------- 5. ライフプラン（Android の LifePlan と同じ） ----------------
+
+export function monthlySaving(txns, incomes, month, months = 3) {
+  const base = new Date(+month.slice(0, 4), +month.slice(5, 7) - 1, 1);
+  const keys = new Set(Array.from({ length: months }, (_, i) => ym(addMonths(base, -(i + 1)))));
+  const inc = incomes.filter((t) => keys.has(ym(new Date(t.date)))).reduce((a, t) => a + t.amount, 0);
+  const out = txns.filter((t) => everyday(t) && !t.isIncome && keys.has(ym(new Date(t.date)))).reduce((a, t) => a + t.amount, 0);
+  return Math.trunc((inc - out) / months);
+}
+export function lifePlan(start, saving, from, months, events, spent) {
+  const base = new Date(+from.slice(0, 4), +from.slice(5, 7) - 1, 1);
+  const outs = events.filter((e) => !e.closed && e.budget > 0 && /^\d{4}-\d{2}/.test(e.start ?? "")).map((e) => {
+    const left = Math.max(0, e.budget - (spent[e.id] ?? 0));
+    const m = e.start.slice(0, 7) < from ? from : e.start.slice(0, 7);
+    return { m, name: e.name, left };
+  }).filter((x) => x.left > 0);
+  let bal = start;
+  return Array.from({ length: months + 1 }, (_, i) => {
+    const m = ym(addMonths(base, i));
+    if (i > 0) bal += saving;
+    const hits = outs.filter((x) => x.m === m);
+    bal -= hits.reduce((a, x) => a + x.left, 0);
+    return { month: m, balance: bal, events: hits.map((x) => `${x.name} -${yen(x.left)}`) };
+  });
+}
+
+// ---------------- 6. 毎月のレポート ----------------
+
+export function monthReport(txns, incomes, prev, budget) {
+  const spend = txns.filter((t) => everyday(t) && !t.isIncome);
+  const byCat = {};
+  for (const t of spend) byCat[t.category] = (byCat[t.category] ?? 0) + t.amount;
+  const over = Object.entries(budget?.categories ?? {}).map(([c, lim]) => [c, (byCat[c] ?? 0) - lim]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  return {
+    spend: spend.reduce((a, t) => a + t.amount, 0), income: incomes.reduce((a, t) => a + t.amount, 0), count: spend.length,
+    prevSpend: prev ? prev.filter((t) => everyday(t) && !t.isIncome).reduce((a, t) => a + t.amount, 0) : null,
+    top: Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 3), over,
+  };
+}
+
+// ---------------- 11. 保証期限 ----------------
+
+export function warrantyList(txns, today) {
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return txns.filter((t) => /^\d{4}-\d{2}-\d{2}$/.test(t.warrantyUntil ?? ""))
+    .map((t) => { const [y, m, d] = t.warrantyUntil.split("-").map(Number); const until = new Date(y, m - 1, d).getTime(); return { t, until, days: Math.round((until - t0) / dayMs) }; })
+    .sort((a, b) => a.until - b.until);
 }
